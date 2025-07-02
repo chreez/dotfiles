@@ -51,6 +51,13 @@ All projects in this workspace inherit Claude-aware tools from dotfiles.
 EOF
 fi
 
+# Install MCP server
+echo "🚀 Installing MCP server..."
+"$DOTFILES_DIR/mcp/install.sh"
+
 echo "✅ Dotfiles installed! Restart terminal or run: source ~/.zshrc"
+echo "🔧 Restart Claude Desktop app to load MCP tools"
 echo "📋 Available tools:"
+echo "  - transcribe_youtube (MCP native tool)"
+echo "  - Shell backup tools in bin/:"
 ls -1 bin/

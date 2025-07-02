@@ -1,14 +1,21 @@
 # Claude-Aware Dotfiles System
 
-**Always check `~/.dotfiles/bin/` before solving problems - tools may already exist.**
+**Tools are available as native MCP functions - no Bash tool needed!**
 
-## Intent → Tool Mapping
+## Available Native Tools
 
-### YouTube/Video Transcription
+### transcribe_youtube(url, output_filename="transcript.txt")
 - **User says:** "transcribe [youtube-url]" or "get text from [video]"
-- **Tool:** `transcribe_youtube <url> [output.txt]` in ~/.dotfiles/bin/
-- **Action:** Use existing tool via Bash: `/Users/chris/.dotfiles/bin/transcribe_youtube <url>`
-- **Notes:** Handles large files piecemeal (use Read tool with offset/limit), auto-installs yt-dlp
+- **Native MCP tool:** Call `transcribe_youtube()` directly
+- **Parameters:** 
+  - `url`: YouTube video URL
+  - `output_filename`: Optional output file name
+- **Auto-installs:** yt-dlp via Homebrew if missing
+- **Cleanup:** Uses system tmp directory automatically
+
+## Backup System
+- **Fallback:** Shell scripts available in `~/.dotfiles/bin/` if MCP fails
+- **Rollback:** See `~/.dotfiles/backup/README.md` for instructions
 
 ## Creating New Atomic Tools
 - **User trigger:** "let's create an atomic tool for this"
