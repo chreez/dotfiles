@@ -5,7 +5,7 @@ Self-installing atomic tools that Claude can auto-discover across contexts.
 ## Quick Setup
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/USER/dotfiles/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/chreez/dotfiles/main/install.sh | bash
 ```
 
 ## What This Does

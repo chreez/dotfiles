@@ -8,8 +8,8 @@
   - Auto-installs yt-dlp via Homebrew if missing
 
 ## Installation
-- One-time setup: `curl -fsSL https://raw.githubusercontent.com/USER/dotfiles/main/install.sh | bash`
-- Manual: `git clone https://github.com/USER/dotfiles.git ~/.dotfiles && ~/.dotfiles/install.sh`
+- One-time setup: `curl -fsSL https://raw.githubusercontent.com/chreez/dotfiles/main/install.sh | bash`
+- Manual: `git clone https://github.com/chreez/dotfiles.git ~/.dotfiles && ~/.dotfiles/install.sh`
 
 ## Tool Development
 - Each tool is atomic (one function only)

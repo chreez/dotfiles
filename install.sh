@@ -6,7 +6,7 @@
 set -e
 
 DOTFILES_DIR="$HOME/.dotfiles"
-REPO_URL="https://github.com/USER/dotfiles.git"  # Update with your username
+REPO_URL="https://github.com/chreez/dotfiles.git"
 
 # Clone or update dotfiles
 if [ -d "$DOTFILES_DIR" ]; then
