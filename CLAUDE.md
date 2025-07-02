@@ -24,6 +24,35 @@
 - **Creates:** New MCP tool function with placeholder implementation
 - **Activation:** Restart Claude Desktop app to load new tool
 
+## Atomic Tool Testing Protocol
+
+**MANDATORY TESTING SEQUENCE:**
+
+1. **Shell Script First:** Always create and test shell version before MCP
+   - Create working shell script in `~/.dotfiles/bin/`
+   - Test shell script manually with real inputs
+   - Verify output is correct and complete
+   - Only proceed to MCP after shell version works
+
+2. **MCP Implementation:** Convert proven shell script to MCP
+   - Use shell script logic as MCP function implementation
+   - Replace placeholder code with actual working implementation
+   - Test MCP function with same inputs used for shell testing
+
+3. **Both Must Pass:** 
+   - Shell script test: PASS ✅
+   - MCP function test: PASS ✅
+   - Only then commit and document new tool
+
+4. **Testing Tools:**
+   - Use `~/.dotfiles/bin/test_tool <tool_name> [args]` to test shell scripts
+   - Test MCP functions via Claude after restart
+   - Both versions must produce identical results
+
+5. **Backup Strategy:**
+   - Keep working shell script in backup/ directory  
+   - If MCP fails, shell version provides reliable fallback
+
 ## Backup System
 - **Fallback:** Shell scripts available in `~/.dotfiles/bin/` if MCP fails
 - **Rollback:** See `~/.dotfiles/backup/README.md` for instructions

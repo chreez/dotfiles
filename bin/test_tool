@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# Tool Testing Script
+# Usage: ./test_tool <tool_name> [test_args...]
+
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <tool_name> [test_args...]"
+    echo "Example: $0 transcribe_youtube 'https://youtube.com/watch?v=123' output.txt"
+    exit 1
+fi
+
+TOOL_NAME="$1"
+shift  # Remove tool name from arguments
+
+DOTFILES_DIR="$HOME/.dotfiles"
+BIN_DIR="$DOTFILES_DIR/bin"
+TOOL_PATH="$BIN_DIR/$TOOL_NAME"
+
+# Check if tool exists
+if [ ! -f "$TOOL_PATH" ]; then
+    echo "❌ Tool not found: $TOOL_PATH"
+    echo "Available tools:"
+    ls -1 "$BIN_DIR" | grep -v test_tool
+    exit 1
+fi
+
+# Make sure tool is executable
+chmod +x "$TOOL_PATH"
+
+echo "🧪 Testing shell tool: $TOOL_NAME"
+echo "📂 Tool path: $TOOL_PATH"
+echo "⚙️  Arguments: $@"
+echo "---"
+
+# Run the tool with provided arguments
+"$TOOL_PATH" "$@"
+EXIT_CODE=$?
+
+echo "---"
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "✅ Shell tool test PASSED"
+else
+    echo "❌ Shell tool test FAILED (exit code: $EXIT_CODE)"
+fi
+
+echo "🔄 Next: Test MCP version with same inputs after implementing"

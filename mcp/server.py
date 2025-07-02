@@ -226,14 +226,21 @@ echo "📝 Tool description: {description}"
 ⚙️  Parameters: {parameters}
 🔧 Implementation notes: {implementation_notes}
 
-🚀 To activate:
-1. Restart Claude Desktop app
-2. Tool will be available as: {name}()
+🧪 MANDATORY TESTING SEQUENCE:
+1. Create shell script first: ~/.dotfiles/bin/{name}
+2. Test shell script with real inputs until it works
+3. Replace MCP placeholder code with working shell logic
+4. Test MCP function with same inputs  
+5. Both must pass before tool is complete
 
-⚠️  Note: This is a placeholder implementation. Edit the function in:
-   {server_path}
+⚠️  Current status: PLACEHOLDER IMPLEMENTATION
+   Edit the function in: {server_path}
    
-🔄 Restart script created at: {restart_path}"""
+🔄 Restart script: {restart_path}
+
+🚀 After testing complete:
+1. Restart Claude Desktop app
+2. Tool available as: {name}()"""
         )]
         
     except Exception as e:
