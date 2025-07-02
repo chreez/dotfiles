@@ -13,6 +13,17 @@
 - **Auto-installs:** yt-dlp via Homebrew if missing
 - **Cleanup:** Uses system tmp directory automatically
 
+### create_atomic_tool(name, description, parameters, implementation_notes)
+- **User says:** "let's create an atomic tool for [task]"
+- **Native MCP tool:** Call `create_atomic_tool()` directly
+- **Parameters:**
+  - `name`: Function name (snake_case)
+  - `description`: What the tool does
+  - `parameters`: Function parameters as string
+  - `implementation_notes`: High-level approach
+- **Creates:** New MCP tool function with placeholder implementation
+- **Activation:** Restart Claude Desktop app to load new tool
+
 ## Backup System
 - **Fallback:** Shell scripts available in `~/.dotfiles/bin/` if MCP fails
 - **Rollback:** See `~/.dotfiles/backup/README.md` for instructions
