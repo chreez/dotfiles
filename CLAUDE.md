@@ -24,6 +24,34 @@
 - **Creates:** New MCP tool function with placeholder implementation
 - **Activation:** Restart Claude Desktop app to load new tool
 
+## Atomic Tool Style Guidelines
+
+**ALL TOOLS MUST FOLLOW THESE UX PATTERNS:**
+
+1. **Intuitive Output Names:**
+   - Auto-generate meaningful filenames from content
+   - Include identifiers for uniqueness (e.g., video ID, hash)
+   - Format: `descriptive.words.IDENTIFIER.ext`
+   - Limit filename length (~50 chars max)
+   - Use dots to separate words for readability
+
+2. **Smart Defaults:**
+   - Minimize required parameters
+   - Make optional parameters truly optional
+   - Auto-detect and derive missing information when possible
+   - Fail gracefully with clear error messages
+
+3. **Consistent Patterns:**
+   - Use same naming convention across all tools
+   - Similar parameter patterns (url first, output optional)
+   - Consistent return formats and messages
+   - Standard success/error reporting
+
+**Examples:**
+- Video: `software.engineering.with.llms.2025.EO3_qN_Ynsk.txt`
+- Audio: `podcast.episode.142.creativity.tools.AB7_xN_2kSw.mp3`
+- Data: `stock.prices.apple.quarterly.20241215.csv`
+
 ## Atomic Tool Testing Protocol
 
 **MANDATORY TESTING SEQUENCE:**

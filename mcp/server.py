@@ -19,17 +19,40 @@ app = Server("dotfiles-tools")
 
 
 @app.tool()
-async def transcribe_youtube(url: str, output_filename: str = "transcript.txt") -> list[TextContent]:
+async def transcribe_youtube(url: str, output_filename: str = None) -> list[TextContent]:
     """
     Extract text transcript from YouTube videos.
     
     Args:
         url: YouTube video URL to transcribe
-        output_filename: Name for the output transcript file (default: transcript.txt)
+        output_filename: Optional custom filename (auto-generated from video title if not provided)
     
     Returns:
         Success message with file location
     """
+    
+    def generate_filename_from_title(title: str, video_id: str) -> str:
+        """Generate intuitive filename from video title and ID"""
+        # Clean title: remove special chars, convert to lowercase
+        import string
+        cleaned = ''.join(c for c in title if c.isalnum() or c.isspace())
+        cleaned = cleaned.lower().strip()
+        
+        # Split into words and take first 6 words max
+        words = cleaned.split()[:6]
+        short_title = '.'.join(words)
+        
+        # Truncate if still too long
+        if len(short_title) > 50:
+            short_title = short_title[:47] + '...'
+        
+        return f"{short_title}.{video_id}.txt"
+    
+    def extract_video_id(url: str) -> str:
+        """Extract video ID from YouTube URL"""
+        import re
+        match = re.search(r'(?:v=|/)([0-9A-Za-z_-]{11})', url)
+        return match.group(1) if match else "unknown"
     
     # Create temporary directory and clean up on exit
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -39,6 +62,19 @@ async def transcribe_youtube(url: str, output_filename: str = "transcript.txt") 
                 subprocess.run(["which", "yt-dlp"], check=True, capture_output=True)
             except subprocess.CalledProcessError:
                 subprocess.run(["brew", "install", "yt-dlp"], check=True)
+            
+            # Get video info for title extraction
+            if output_filename is None:
+                info_result = subprocess.run([
+                    "yt-dlp", 
+                    "--print", "title",
+                    "--no-warnings",
+                    url
+                ], capture_output=True, text=True, check=True)
+                
+                video_title = info_result.stdout.strip()
+                video_id = extract_video_id(url)
+                output_filename = generate_filename_from_title(video_title, video_id)
             
             # Extract subtitles to temporary directory
             subprocess.run([

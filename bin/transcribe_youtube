@@ -1,16 +1,53 @@
 #!/bin/bash
 
 # YouTube Transcription Script
-# Usage: ./transcribe_youtube.sh <youtube_url> [output_filename]
+# Usage: ./transcribe_youtube <youtube_url> [output_filename]
 
 if [ $# -eq 0 ]; then
     echo "Usage: $0 <youtube_url> [output_filename]"
-    echo "Example: $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' my_transcript.txt"
+    echo "Example: $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"
+    echo "Auto-generates intuitive filename from video title if not specified"
     exit 1
 fi
 
 URL="$1"
-OUTPUT="${2:-transcript.txt}"
+OUTPUT="$2"
+
+# Generate filename from video title if not provided
+generate_filename() {
+    local url="$1"
+    
+    # Extract video title
+    local title=$(yt-dlp --print title --no-warnings "$url" 2>/dev/null)
+    if [ $? -ne 0 ] || [ -z "$title" ]; then
+        echo "transcript.txt"
+        return
+    fi
+    
+    # Extract video ID from URL
+    local video_id=$(echo "$url" | grep -oE '([0-9A-Za-z_-]{11})')
+    if [ -z "$video_id" ]; then
+        video_id="unknown"
+    fi
+    
+    # Clean title: remove special chars, convert to lowercase
+    local cleaned=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9 ]//g' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
+    
+    # Take first 6 words
+    local short_title=$(echo "$cleaned" | cut -d' ' -f1-6 | tr ' ' '.')
+    
+    # Truncate if too long
+    if [ ${#short_title} -gt 50 ]; then
+        short_title="${short_title:0:47}..."
+    fi
+    
+    echo "${short_title}.${video_id}.txt"
+}
+
+# Use provided filename or generate one
+if [ -z "$OUTPUT" ]; then
+    OUTPUT=$(generate_filename "$URL")
+fi
 
 # Create temporary directory and clean up on exit
 TMP_DIR=$(mktemp -d)
