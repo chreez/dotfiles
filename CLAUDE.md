@@ -15,4 +15,5 @@
 - Each tool is atomic (one function only)
 - Auto-install dependencies when missing
 - Use `which <tool>` checks before installing
+- Use system tmp directory for temp files: `TMP_DIR=$(mktemp -d)` + `trap "rm -rf $TMP_DIR" EXIT`
 - Log changes to git history (no separate changelog needed)

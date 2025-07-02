@@ -12,14 +12,19 @@ fi
 URL="$1"
 OUTPUT="${2:-transcript.txt}"
 
+# Create temporary directory and clean up on exit
+TMP_DIR=$(mktemp -d)
+trap "rm -rf $TMP_DIR" EXIT
+
 # Check if yt-dlp is installed
 if ! command -v yt-dlp &> /dev/null; then
     echo "yt-dlp not found. Installing via Homebrew..."
     brew install yt-dlp
 fi
 
-# Extract subtitles
+# Extract subtitles to temporary directory
 echo "Extracting subtitles from: $URL"
+cd "$TMP_DIR"
 yt-dlp --write-subs --write-auto-subs --sub-langs en --skip-download "$URL"
 
 # Find the VTT file (handles special characters in filenames)
@@ -30,7 +35,7 @@ if [ -z "$VTT_FILE" ]; then
     exit 1
 fi
 
-# Clean up the VTT file to plain text
+# Clean up the VTT file to plain text and save to specified output location
 echo "Cleaning transcript..."
 grep -v "^WEBVTT" "$VTT_FILE" | \
 grep -v "^$" | \
@@ -41,9 +46,6 @@ sed 's/<[^>]*>//g' | \
 sort -n | \
 uniq | \
 grep -v "^$" | \
-sed 's/^[[:space:]]*//' > "$OUTPUT"
-
-# Clean up VTT file
-rm "$VTT_FILE"
+sed 's/^[[:space:]]*//' > "$OLDPWD/$OUTPUT"
 
 echo "Transcript saved to: $OUTPUT"
