@@ -36,6 +36,21 @@ if [ ! -f "CLAUDE.md" ]; then
     ls -1 bin/ | sed 's/^/- /' >> CLAUDE.md
 fi
 
+# Create workspace CLAUDE.md for tool inheritance
+WORKSPACE_DIR="$HOME/workspace"
+if [ -d "$WORKSPACE_DIR" ]; then
+    echo "🔗 Adding Claude tools to workspace directory..."
+    cat > "$WORKSPACE_DIR/CLAUDE.md" << EOF
+# Workspace Tools
+
+**Import dotfiles system:**
+@$HOME/.dotfiles/CLAUDE.md
+
+## Workspace Context
+All projects in this workspace inherit Claude-aware tools from dotfiles.
+EOF
+fi
+
 echo "✅ Dotfiles installed! Restart terminal or run: source ~/.zshrc"
 echo "📋 Available tools:"
 ls -1 bin/

@@ -20,7 +20,9 @@
   5. Commit to git with clear description
 
 ## Tool Discovery Rules
-- Before solving problems, check ~/.dotfiles/bin/ first
+- **FIRST STEP:** Always check ~/.dotfiles/bin/ for ANY part of the task
+- Break complex requests into steps, check tools for EACH step
+- Example: "Transcribe video + build website" = Step 1: transcribe (check tools), Step 2: build site
 - Map user intent to existing tools when possible
 - If no tool exists → solve normally, then offer to atomize
 - Ask: "Should we create a tool for this recurring task?"
