@@ -1,0 +1,49 @@
+#!/bin/bash
+
+# YouTube Transcription Script
+# Usage: ./transcribe_youtube.sh <youtube_url> [output_filename]
+
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <youtube_url> [output_filename]"
+    echo "Example: $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' my_transcript.txt"
+    exit 1
+fi
+
+URL="$1"
+OUTPUT="${2:-transcript.txt}"
+
+# Check if yt-dlp is installed
+if ! command -v yt-dlp &> /dev/null; then
+    echo "yt-dlp not found. Installing via Homebrew..."
+    brew install yt-dlp
+fi
+
+# Extract subtitles
+echo "Extracting subtitles from: $URL"
+yt-dlp --write-subs --write-auto-subs --sub-langs en --skip-download "$URL"
+
+# Find the VTT file (handles special characters in filenames)
+VTT_FILE=$(find . -name "*.en.vtt" -type f | head -1)
+
+if [ -z "$VTT_FILE" ]; then
+    echo "No subtitle file found. Video may not have subtitles available."
+    exit 1
+fi
+
+# Clean up the VTT file to plain text
+echo "Cleaning transcript..."
+grep -v "^WEBVTT" "$VTT_FILE" | \
+grep -v "^$" | \
+grep -v "^[0-9][0-9]:" | \
+grep -v "Kind:" | \
+grep -v "Language:" | \
+sed 's/<[^>]*>//g' | \
+sort -n | \
+uniq | \
+grep -v "^$" | \
+sed 's/^[[:space:]]*//' > "$OUTPUT"
+
+# Clean up VTT file
+rm "$VTT_FILE"
+
+echo "Transcript saved to: $OUTPUT"
