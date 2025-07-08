@@ -1,0 +1,887 @@
+#!/bin/bash
+
+# network_drive_manager - Manage network SMB shares with natural language commands - mount, list, and open files
+# Usage: ./network_drive_manager [command] [args]
+# REQUIRES: mount, umount, smbutil, stat, find, sort, date, basename, open, mkdir, rm, awk
+
+# Network configuration
+NETWORK_HOST="192.168.1.236"
+USERNAME="Chris"
+PASSWORD="Gnomes123!"
+MOUNT_BASE="$HOME/network_drives"
+SHARES=(
+    "E-VR-SiteRip:evr"
+    "Movies2:movies2"
+    "Rated:rated"
+    "Rated2:rated2"
+)
+
+# Use working directory for temporary files to avoid permission issues
+TMP_DIR="./tmp_network_drive_manager_$$"
+PLAYLIST_DIR="$HOME/network_drives/playlists"
+mkdir -p "$TMP_DIR"
+mkdir -p "$PLAYLIST_DIR"
+trap "rm -rf $TMP_DIR" EXIT
+
+# Theme Matching Engine
+# Parse filename to extract metadata
+parse_filename() {
+    local filename="$1"
+    local basename_only=$(basename "$filename" | sed 's/\.[^.]*$//')
+    
+    # Initialize metadata variables
+    local site=""
+    local actress=""
+    local content_id=""
+    local year=""
+    local quality=""
+    
+    # Site detection patterns
+    if [[ "$basename_only" =~ [Bb][Jj][Rr][Aa][Ww] ]]; then
+        site="BJRAW"
+    elif [[ "$basename_only" =~ [Bb][Rr][Aa][Zz][Zz][Ee][Rr][Ss] ]]; then
+        site="BRAZZERS"
+    elif [[ "$basename_only" =~ [Rr][Ee][Aa][Ll][Ii][Tt][Yy][Kk][Ii][Nn][Gg][Ss] ]]; then
+        site="REALITYKINGS"
+    elif [[ "$basename_only" =~ [Bb][Aa][Nn][Gg][Bb][Rr][Oo][Ss] ]]; then
+        site="BANGBROS"
+    fi
+    
+    # Extract year (4 digits)
+    if [[ "$basename_only" =~ ([0-9]{4}) ]]; then
+        year="${BASH_REMATCH[1]}"
+    fi
+    
+    # Extract quality
+    if [[ "$basename_only" =~ ([0-9]{3,4}p|[0-9]{3,4}P) ]]; then
+        quality="${BASH_REMATCH[1]}"
+    fi
+    
+    # Extract actress name (common patterns)
+    # Pattern: Site.ActressName.Something or ActressName.Site.Something
+    if [[ "$basename_only" =~ \.([A-Za-z]+[A-Za-z0-9]*[A-Za-z]+)\. ]]; then
+        actress="${BASH_REMATCH[1]}"
+    fi
+    
+    # Output metadata (tab-separated for easy parsing)
+    echo "$site	$actress	$year	$quality	$content_id"
+}
+
+# Check if file matches theme criteria
+matches_theme() {
+    local filename="$1"
+    local theme="$2"
+    
+    local metadata=$(parse_filename "$filename")
+    local site=$(echo "$metadata" | cut -f1)
+    local actress=$(echo "$metadata" | cut -f2)
+    
+    case "$theme" in
+        "bjraw"|"BJRAW")
+            [[ "$site" == "BJRAW" ]] && return 0
+            ;;
+        "brazzers"|"BRAZZERS")
+            [[ "$site" == "BRAZZERS" ]] && return 0
+            ;;
+        "realitykings"|"REALITYKINGS")
+            [[ "$site" == "REALITYKINGS" ]] && return 0
+            ;;
+        "bangbros"|"BANGBROS")
+            [[ "$site" == "BANGBROS" ]] && return 0
+            ;;
+        *)
+            # Custom theme matching (actress name, etc.)
+            [[ "$actress" =~ $theme ]] && return 0
+            ;;
+    esac
+    
+    return 1
+}
+
+# Deduplication System
+# Calculate Levenshtein distance between two strings
+levenshtein_distance() {
+    local s1="$1"
+    local s2="$2"
+    local len1=${#s1}
+    local len2=${#s2}
+    
+    # Create matrix
+    local matrix=()
+    for ((i=0; i<=len1; i++)); do
+        for ((j=0; j<=len2; j++)); do
+            if [ $i -eq 0 ]; then
+                matrix[$((i * (len2 + 1) + j))]=$j
+            elif [ $j -eq 0 ]; then
+                matrix[$((i * (len2 + 1) + j))]=$i
+            else
+                local cost=1
+                if [ "${s1:$((i-1)):1}" = "${s2:$((j-1)):1}" ]; then
+                    cost=0
+                fi
+                
+                local above=$((matrix[$(((i-1) * (len2 + 1) + j))] + 1))
+                local left=$((matrix[$((i * (len2 + 1) + j - 1))] + 1))
+                local diagonal=$((matrix[$(((i-1) * (len2 + 1) + j - 1))] + cost))
+                
+                local min=$above
+                [ $left -lt $min ] && min=$left
+                [ $diagonal -lt $min ] && min=$diagonal
+                
+                matrix[$((i * (len2 + 1) + j))]=$min
+            fi
+        done
+    done
+    
+    echo ${matrix[$((len1 * (len2 + 1) + len2))]}
+}
+
+# Calculate similarity ratio (0-1, where 1 is identical)
+similarity_ratio() {
+    local s1="$1"
+    local s2="$2"
+    local distance=$(levenshtein_distance "$s1" "$s2")
+    local max_len=${#s1}
+    [ ${#s2} -gt $max_len ] && max_len=${#s2}
+    
+    if [ $max_len -eq 0 ]; then
+        echo "1.0"
+    else
+        # Use awk instead of bc for macOS compatibility
+    echo "$max_len $distance" | awk '{print int((($1 - $2) * 100) / $1)}'
+    fi
+}
+
+# Extract normalized content identifier for deduplication
+normalize_content_id() {
+    local filename="$1"
+    local basename_only=$(basename "$filename" | sed 's/\.[^.]*$//')
+    
+    # Remove common noise words and patterns
+    local normalized=$(echo "$basename_only" | tr '[:upper:]' '[:lower:]' | \
+        sed -e 's/[^a-z0-9]/ /g' \
+            -e 's/\b(720p|1080p|4k|2160p|mp4|mkv|avi|mov|wmv|flv|webm)\b//g' \
+            -e 's/\b(xxx|porn|adult|hd|uhd|bluray|brrip|webrip|dvdrip)\b//g' \
+            -e 's/\s\+/ /g' \
+            -e 's/^\s\+//g' \
+            -e 's/\s\+$//g')
+    
+    echo "$normalized"
+}
+
+# Check if two files are likely duplicates
+are_duplicates() {
+    local file1="$1"
+    local file2="$2"
+    local threshold=${3:-75}  # Default similarity threshold of 75%
+    
+    local id1=$(normalize_content_id "$file1")
+    local id2=$(normalize_content_id "$file2")
+    
+    # If normalized IDs are identical, they're duplicates
+    [ "$id1" = "$id2" ] && return 0
+    
+    # Calculate similarity ratio
+    local ratio=$(similarity_ratio "$id1" "$id2")
+    local ratio_int=${ratio%.*}  # Remove decimal part
+    
+    # If similarity is above threshold, consider duplicates
+    [ $ratio_int -ge $threshold ] && return 0
+    
+    return 1
+}
+
+# Remove duplicates from a list of files
+remove_duplicates() {
+    local files=("$@")
+    local unique_files=()
+    local threshold=${SIMILARITY_THRESHOLD:-75}
+    
+    for file in "${files[@]}"; do
+        local is_duplicate=false
+        
+        for unique_file in "${unique_files[@]}"; do
+            if are_duplicates "$file" "$unique_file" "$threshold"; then
+                is_duplicate=true
+                break
+            fi
+        done
+        
+        if [ "$is_duplicate" = false ]; then
+            unique_files+=("$file")
+        fi
+    done
+    
+    printf '%s\n' "${unique_files[@]}"
+}
+
+# Exclusion Logic
+# Check if file was created within the last year
+is_recent_file() {
+    local file_path="$1"
+    local current_time=$(date +%s)
+    local one_year_ago=$((current_time - 31536000))  # 365 days in seconds
+    
+    # Get file creation time (birth time on macOS)
+    local file_time=$(stat -f "%B" "$file_path" 2>/dev/null)
+    
+    if [ -z "$file_time" ]; then
+        # Fallback to modification time if birth time is not available
+        file_time=$(stat -f "%m" "$file_path" 2>/dev/null)
+    fi
+    
+    [ -n "$file_time" ] && [ $file_time -gt $one_year_ago ] && return 0
+    return 1
+}
+
+# Check if file is in a low-rated directory (0-3)
+is_low_rated() {
+    local file_path="$1"
+    
+    # Check if path contains /0/, /1/, /2/, or /3/ directories
+    [[ "$file_path" =~ /[0-3]/ ]] && return 0
+    
+    # Check if path contains "0-3" pattern
+    [[ "$file_path" =~ /0-3/ ]] && return 0
+    
+    return 1
+}
+
+# Check if file is a VR file (to exclude by default)
+is_vr_file() {
+    local file_path="$1"
+    
+    # Check if path contains VR-related patterns
+    [[ "$file_path" =~ [Vv][Rr] ]] && return 0
+    [[ "$file_path" =~ [Vv]irtual ]] && return 0
+    [[ "$file_path" =~ [Oo]culus ]] && return 0
+    [[ "$file_path" =~ [Pp]laystation.*[Vv][Rr] ]] && return 0
+    [[ "$file_path" =~ [Ss]team.*[Vv][Rr] ]] && return 0
+    [[ "$file_path" =~ E-VR-SiteRip ]] && return 0
+    [[ "$file_path" =~ evr ]] && return 0
+    
+    return 1
+}
+
+# Check if file should be excluded based on criteria
+should_exclude_file() {
+    local file_path="$1"
+    local exclude_recent="$2"
+    local exclude_low_rated="$3"
+    local exclude_vr="${4:-true}"  # Default to excluding VR files
+    
+    # Check VR files exclusion (default behavior)
+    if [ "$exclude_vr" = "true" ] && is_vr_file "$file_path"; then
+        return 0
+    fi
+    
+    # Check recent files exclusion
+    if [ "$exclude_recent" = "true" ] && is_recent_file "$file_path"; then
+        return 0
+    fi
+    
+    # Check low-rated exclusion
+    if [ "$exclude_low_rated" = "true" ] && is_low_rated "$file_path"; then
+        return 0
+    fi
+    
+    return 1
+}
+
+# Filter files based on exclusion criteria
+filter_excluded_files() {
+    local exclude_recent="$1"
+    local exclude_low_rated="$2"
+    local exclude_vr="${3:-true}"  # Default to excluding VR files
+    shift 3
+    local files=("$@")
+    local filtered_files=()
+    
+    for file in "${files[@]}"; do
+        if ! should_exclude_file "$file" "$exclude_recent" "$exclude_low_rated" "$exclude_vr"; then
+            filtered_files+=("$file")
+        fi
+    done
+    
+    printf '%s\n' "${filtered_files[@]}"
+}
+
+# XSPF Playlist Generation Functions
+# Generate XSPF playlist file
+generate_xspf_playlist() {
+    local playlist_name="$1"
+    local playlist_file="$PLAYLIST_DIR/${playlist_name}.xspf"
+    shift
+    local video_files=("$@")
+    
+    if [ ${#video_files[@]} -eq 0 ]; then
+        echo "❌ No video files provided for playlist"
+        return 1
+    fi
+    
+    echo "🎵 Generating XSPF playlist: $playlist_name"
+    
+    # Auto-mount drives before generating playlist
+    mount_drives >/dev/null 2>&1
+    
+    # Create XSPF playlist
+    cat > "$playlist_file" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<playlist version="1" xmlns="http://xspf.org/ns/0/">
+  <title>$playlist_name</title>
+  <trackList>
+EOF
+    
+    # Add each video file to the playlist with network paths
+    local valid_files=0
+    for video_file in "${video_files[@]}"; do
+        # Check if file exists
+        if [ -f "$video_file" ]; then
+            local file_title=$(basename "$video_file" | sed 's/\.[^.]*$//')
+            
+            # Use local mount path with proper file:// protocol
+            local file_path="$video_file"
+            
+            # URL encode spaces and special characters for file:// protocol
+            file_path=$(echo "$file_path" | sed 's/ /%20/g')
+            file_path="file://$file_path"
+            
+            cat >> "$playlist_file" << EOF
+    <track>
+      <title>$file_title</title>
+      <location>$file_path</location>
+    </track>
+EOF
+            ((valid_files++))
+        else
+            echo "⚠️  Warning: File not found: $video_file"
+        fi
+    done
+    
+    # Close the playlist
+    cat >> "$playlist_file" << EOF
+  </trackList>
+</playlist>
+EOF
+    
+    if [ $valid_files -eq 0 ]; then
+        echo "❌ No valid files found for playlist"
+        rm -f "$playlist_file"
+        return 1
+    fi
+    
+    echo "✅ Playlist saved: $playlist_file ($valid_files valid files)"
+    echo "🎬 Opening playlist in VLC..."
+    echo "📝 Note: Network drives will be auto-mounted when VLC opens the playlist"
+    
+    # Create a wrapper script that ensures drives are mounted before opening VLC
+    local wrapper_script="$PLAYLIST_DIR/open_${playlist_name}.sh"
+    cat > "$wrapper_script" << 'EOF'
+#!/bin/bash
+# Auto-mount network drives before opening playlist
+MOUNT_BASE="$HOME/network_drives"
+NETWORK_HOST="192.168.1.236"
+USERNAME="Chris"
+PASSWORD="Gnomes123!"
+SHARES=(
+    "E-VR-SiteRip:evr"
+    "Movies2:movies2"
+    "Rated:rated"
+    "Rated2:rated2"
+)
+
+# Function to check if share is mounted
+is_mounted() {
+    local share_name="$1"
+    mount | grep -q "$MOUNT_BASE/$share_name"
+}
+
+# Mount drives if needed
+for share_info in "${SHARES[@]}"; do
+    IFS=':' read -r share_name mount_name <<< "$share_info"
+    mount_point="$MOUNT_BASE/$mount_name"
+    
+    if ! is_mounted "$mount_name"; then
+        echo "Mounting $share_name..."
+        mkdir -p "$mount_point"
+        mount -t smbfs "//$USERNAME:$PASSWORD@$NETWORK_HOST/$share_name" "$mount_point" 2>/dev/null
+    fi
+done
+
+# Open VLC with the playlist
+exec "/Applications/VLC.app/Contents/MacOS/VLC" "$1"
+EOF
+    
+    chmod +x "$wrapper_script"
+    
+    # Open playlist using the wrapper script
+    "$wrapper_script" "$playlist_file" &
+    
+    return 0
+}
+
+# Helper functions
+show_usage() {
+    echo "Usage: $0 [command] [args]"
+    echo ""
+    echo "Commands:"
+    echo "  mount              - Mount all network drives"
+    echo "  status             - Show mount status"
+    echo "  list [share]       - List files from share(s)"
+    echo "  open [criteria]    - Open files/folders based on criteria"
+    echo "  playlist [type]    - Generate themed playlists (theme, random, smart)"
+    echo ""
+    echo "Examples:"
+    echo "  $0 mount"
+    echo "  $0 list rated"
+    echo "  $0 open 'latest 10 files in rated'"
+    echo "  $0 open 'network drive movies2'"
+    echo "  $0 playlist theme bjraw 30"
+    echo "  $0 playlist random 30"
+}
+
+# Check if shares are mounted
+is_mounted() {
+    local share_name="$1"
+    mount | grep -q "$MOUNT_BASE/$share_name"
+}
+
+# Mount all network drives
+mount_drives() {
+    echo "Mounting network drives..."
+    mkdir -p "$MOUNT_BASE"
+    
+    for share_info in "${SHARES[@]}"; do
+        IFS=':' read -r share_name mount_name <<< "$share_info"
+        mount_point="$MOUNT_BASE/$mount_name"
+        
+        if is_mounted "$mount_name"; then
+            echo "✅ $share_name already mounted at $mount_point"
+        else
+            echo "🔄 Mounting $share_name..."
+            mkdir -p "$mount_point"
+            if mount -t smbfs "//$USERNAME:$PASSWORD@$NETWORK_HOST/$share_name" "$mount_point" 2>/dev/null; then
+                echo "✅ Mounted $share_name at $mount_point"
+            else
+                echo "❌ Failed to mount $share_name"
+            fi
+        fi
+    done
+}
+
+# Show mount status
+show_status() {
+    echo "Network Drive Status:"
+    echo "===================="
+    for share_info in "${SHARES[@]}"; do
+        IFS=':' read -r share_name mount_name <<< "$share_info"
+        mount_point="$MOUNT_BASE/$mount_name"
+        
+        if is_mounted "$mount_name"; then
+            echo "✅ $share_name: MOUNTED at $mount_point"
+        else
+            echo "❌ $share_name: NOT MOUNTED"
+        fi
+    done
+}
+
+# List files from shares
+list_files() {
+    local target_share="$1"
+    
+    # Auto-mount if not mounted
+    mount_drives >/dev/null 2>&1
+    
+    echo "Network Files (sorted by creation date):"
+    echo "========================================"
+    
+    for share_info in "${SHARES[@]}"; do
+        IFS=':' read -r share_name mount_name <<< "$share_info"
+        
+        # Skip if specific share requested and this isn't it
+        if [ -n "$target_share" ] && [ "$mount_name" != "$target_share" ]; then
+            continue
+        fi
+        
+        mount_point="$MOUNT_BASE/$mount_name"
+        
+        if ! is_mounted "$mount_name"; then
+            echo "❌ $share_name: NOT MOUNTED"
+            continue
+        fi
+        
+        echo ""
+        echo "=== $share_name ==="
+        
+        # Find files and sort by creation date (newest first)
+        find "$mount_point" -type f -exec stat -f "%B %N" {} \; 2>/dev/null | \
+        sort -rn | \
+        head -20 | \
+        awk -v base="$mount_point" '{
+            timestamp = $1
+            path = $2
+            gsub(base"/", "", path)
+            cmd = "date -r " timestamp " \"+%Y-%m-%d %H:%M:%S\""
+            cmd | getline date_str
+            close(cmd)
+            print date_str " - " path
+        }'
+    done
+}
+
+# Parse natural language commands and open files
+open_files() {
+    local command="$*"
+    
+    # Auto-mount if not mounted
+    mount_drives >/dev/null 2>&1
+    
+    echo "Processing: $command"
+    
+    # Parse command for different patterns
+    if [[ "$command" =~ latest[[:space:]]+([0-9]+)[[:space:]]+files?[[:space:]]+in[[:space:]]+([a-zA-Z0-9_-]+) ]]; then
+        # Pattern: "latest 10 files in rated"
+        count="${BASH_REMATCH[1]}"
+        share="${BASH_REMATCH[2]}"
+        open_latest_files "$share" "$count"
+        
+    elif [[ "$command" =~ network[[:space:]]+drive[[:space:]]+([a-zA-Z0-9_-]+) ]]; then
+        # Pattern: "network drive movies2"
+        share="${BASH_REMATCH[1]}"
+        open_network_drive "$share"
+        
+    elif [[ "$command" =~ ^([a-zA-Z0-9_-]+)$ ]]; then
+        # Pattern: just a share name
+        open_network_drive "$command"
+        
+    else
+        echo "❌ Could not parse command: $command"
+        echo "Try: 'latest 10 files in rated' or 'network drive movies2'"
+    fi
+}
+
+# Open latest files from a share
+open_latest_files() {
+    local share="$1"
+    local count="$2"
+    
+    echo "Opening latest $count files from $share..."
+    
+    # Find the mount point
+    local mount_point=""
+    for share_info in "${SHARES[@]}"; do
+        IFS=':' read -r share_name mount_name <<< "$share_info"
+        if [ "$mount_name" == "$share" ]; then
+            mount_point="$MOUNT_BASE/$mount_name"
+            break
+        fi
+    done
+    
+    if [ -z "$mount_point" ] || ! is_mounted "$share"; then
+        echo "❌ Share '$share' not found or not mounted"
+        return 1
+    fi
+    
+    # Find the latest directory
+    local latest_dir=$(find "$mount_point" -type d -exec stat -f "%B %N" {} \; 2>/dev/null | \
+                       sort -rn | \
+                       head -1 | \
+                       awk '{print $2}')
+    
+    if [ -z "$latest_dir" ]; then
+        echo "❌ No directories found in $share"
+        return 1
+    fi
+    
+    echo "📁 Latest directory: $(basename "$latest_dir")"
+    echo "🎬 Queuing all video files from latest directory into VLC..."
+    
+    # Find all video files in the latest directory recursively
+    local video_files=()
+    while IFS= read -r file; do
+        video_files+=("$file")
+    done < <(find "$latest_dir" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.wmv" -o -name "*.flv" -o -name "*.webm" \) 2>/dev/null)
+    
+    if [ ${#video_files[@]} -eq 0 ]; then
+        echo "❌ No video files found in latest directory"
+        return 1
+    fi
+    
+    echo "🎬 Found ${#video_files[@]} video files - creating VLC playlist"
+    
+    # Generate playlist name based on directory
+    local playlist_name="latest_$(basename "$latest_dir")_$(date +%Y%m%d_%H%M%S)"
+    
+    # Generate and open XSPF playlist
+    generate_xspf_playlist "$playlist_name" "${video_files[@]}"
+}
+
+# Open network drive folder
+open_network_drive() {
+    local share="$1"
+    
+    echo "Opening network drive: $share"
+    
+    # Find the mount point
+    local mount_point=""
+    for share_info in "${SHARES[@]}"; do
+        IFS=':' read -r share_name mount_name <<< "$share_info"
+        if [ "$mount_name" == "$share" ]; then
+            mount_point="$MOUNT_BASE/$mount_name"
+            break
+        fi
+    done
+    
+    if [ -z "$mount_point" ] || ! is_mounted "$share"; then
+        echo "❌ Share '$share' not found or not mounted"
+        return 1
+    fi
+    
+    echo "📁 Opening $mount_point in Finder"
+    open "$mount_point"
+}
+
+# Playlist Generation Functions
+# Generate themed playlist
+generate_themed_playlist() {
+    local theme="$1"
+    local count="$2"
+    local share="${3:-rated}"  # Default to rated share
+    
+    echo "🎯 Generating $count video themed playlist: $theme"
+    
+    # Auto-mount if not mounted
+    mount_drives >/dev/null 2>&1
+    
+    # Find the mount point
+    local mount_point=""
+    for share_info in "${SHARES[@]}"; do
+        IFS=':' read -r share_name mount_name <<< "$share_info"
+        if [ "$mount_name" == "$share" ]; then
+            mount_point="$MOUNT_BASE/$mount_name"
+            break
+        fi
+    done
+    
+    if [ -z "$mount_point" ] || ! is_mounted "$share"; then
+        echo "❌ Share '$share' not found or not mounted"
+        return 1
+    fi
+    
+    # Find all video files recursively (ensure we only get files, not directories)
+    local all_files=()
+    while IFS= read -r file; do
+        # Double-check that it's actually a file with a video extension
+        if [[ -f "$file" && "$file" =~ \.(mp4|mkv|avi|mov|wmv|flv|webm)$ ]]; then
+            all_files+=("$file")
+        fi
+    done < <(find "$mount_point" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.wmv" -o -name "*.flv" -o -name "*.webm" \) 2>/dev/null)
+    
+    # Filter by theme and exclude VR files by default
+    local themed_files=()
+    for file in "${all_files[@]}"; do
+        if matches_theme "$file" "$theme" && ! is_vr_file "$file"; then
+            themed_files+=("$file")
+        fi
+    done
+    
+    if [ ${#themed_files[@]} -eq 0 ]; then
+        echo "❌ No files found matching theme: $theme"
+        return 1
+    fi
+    
+    # Remove duplicates
+    local unique_files=()
+    while IFS= read -r file; do
+        [ -n "$file" ] && unique_files+=("$file")
+    done < <(remove_duplicates "${themed_files[@]}")
+    
+    # Shuffle and take requested count (macOS compatible, preserving spaces)
+    local selected_files=()
+    local temp_file="$TMP_DIR/shuffled_files"
+    printf '%s\n' "${unique_files[@]}" | sort -R > "$temp_file"
+    
+    local actual_count=$(( ${#unique_files[@]} < count ? ${#unique_files[@]} : count ))
+    local i=0
+    while IFS= read -r file && [ $i -lt $actual_count ]; do
+        selected_files+=("$file")
+        ((i++))
+    done < "$temp_file"
+    
+    echo "📺 Selected $actual_count files for $theme playlist"
+    
+    # Generate playlist
+    local playlist_name="${theme}_playlist_$(date +%Y%m%d_%H%M%S)"
+    generate_xspf_playlist "$playlist_name" "${selected_files[@]}"
+}
+
+# Generate random playlist
+generate_random_playlist() {
+    local count="$1"
+    local share="${2:-rated}"  # Default to rated share
+    local exclude_recent="${3:-false}"
+    local exclude_low_rated="${4:-true}"  # Default to excluding low-rated
+    local enable_dedup="${5:-false}"  # Deduplication is optional due to performance
+    
+    echo "🎲 Generating $count video random playlist from $share"
+    
+    # Auto-mount if not mounted
+    mount_drives >/dev/null 2>&1
+    
+    # Find the mount point
+    local mount_point=""
+    for share_info in "${SHARES[@]}"; do
+        IFS=':' read -r share_name mount_name <<< "$share_info"
+        if [ "$mount_name" == "$share" ]; then
+            mount_point="$MOUNT_BASE/$mount_name"
+            break
+        fi
+    done
+    
+    if [ -z "$mount_point" ] || ! is_mounted "$share"; then
+        echo "❌ Share '$share' not found or not mounted"
+        return 1
+    fi
+    
+    echo "📋 Scanning for video files in $mount_point..."
+    
+    # Find all video files recursively (ensure we only get files, not directories)
+    local all_files=()
+    while IFS= read -r file; do
+        # Double-check that it's actually a file with a video extension
+        if [[ -f "$file" && "$file" =~ \.(mp4|mkv|avi|mov|wmv|flv|webm)$ ]]; then
+            all_files+=("$file")
+        fi
+    done < <(find "$mount_point" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.wmv" -o -name "*.flv" -o -name "*.webm" \) 2>/dev/null)
+    
+    echo "📊 Found ${#all_files[@]} total video files"
+    
+    # Apply exclusion filters (including VR exclusion by default)
+    local filtered_files=()
+    while IFS= read -r file; do
+        [ -n "$file" ] && filtered_files+=("$file")
+    done < <(filter_excluded_files "$exclude_recent" "$exclude_low_rated" "true" "${all_files[@]}")
+    
+    echo "✅ ${#filtered_files[@]} files after applying filters"
+    
+    # Optional deduplication (can be slow for large collections)
+    local final_files=()
+    if [ "$enable_dedup" = "true" ]; then
+        echo "🔄 Removing duplicates (this may take a while)..."
+        while IFS= read -r file; do
+            [ -n "$file" ] && final_files+=("$file")
+        done < <(remove_duplicates "${filtered_files[@]}")
+        echo "✨ ${#final_files[@]} unique files after deduplication"
+    else
+        final_files=("${filtered_files[@]}")
+    fi
+    
+    if [ ${#final_files[@]} -eq 0 ]; then
+        echo "❌ No files found after applying filters"
+        return 1
+    fi
+    
+    # Shuffle and take requested count (macOS compatible, preserving spaces)
+    local selected_files=()
+    local temp_file="$TMP_DIR/shuffled_files_random"
+    printf '%s\n' "${final_files[@]}" | sort -R > "$temp_file"
+    
+    local actual_count=$(( ${#final_files[@]} < count ? ${#final_files[@]} : count ))
+    local i=0
+    while IFS= read -r file && [ $i -lt $actual_count ]; do
+        selected_files+=("$file")
+        ((i++))
+    done < "$temp_file"
+    
+    echo "📺 Selected $actual_count files for random playlist"
+    
+    # Generate playlist
+    local playlist_name="random_playlist_$(date +%Y%m%d_%H%M%S)"
+    generate_xspf_playlist "$playlist_name" "${selected_files[@]}"
+}
+
+# Generate smart playlist with advanced deduplication
+generate_smart_playlist() {
+    local count="$1"
+    local share="${2:-rated}"  # Default to rated share
+    local max_similarity="${3:-75}"  # Maximum similarity threshold
+    
+    echo "🧠 Generating $count video smart playlist from $share (max similarity: $max_similarity%)"
+    
+    # Set similarity threshold
+    export SIMILARITY_THRESHOLD="$max_similarity"
+    
+    # Use random playlist with stricter deduplication
+    generate_random_playlist "$count" "$share" "true" "true"
+}
+
+# Handle playlist commands
+handle_playlist_command() {
+    local subcommand="$1"
+    shift
+    
+    case "$subcommand" in
+        "theme")
+            if [ $# -lt 2 ]; then
+                echo "❌ Usage: playlist theme <theme_name> <count> [share]"
+                echo "   Examples: playlist theme bjraw 30"
+                echo "             playlist theme brazzers 20 rated"
+                return 1
+            fi
+            generate_themed_playlist "$1" "$2" "$3"
+            ;;
+        "random")
+            if [ $# -lt 1 ]; then
+                echo "❌ Usage: playlist random <count> [share] [exclude_recent] [exclude_low_rated] [enable_dedup]"
+                echo "   Examples: playlist random 30"
+                echo "             playlist random 25 rated true false"
+                echo "             playlist random 30 rated false true true  # Enable deduplication"
+                return 1
+            fi
+            generate_random_playlist "$1" "$2" "$3" "$4" "$5"
+            ;;
+        "smart")
+            if [ $# -lt 1 ]; then
+                echo "❌ Usage: playlist smart <count> [share] [max_similarity]"
+                echo "   Examples: playlist smart 30"
+                echo "             playlist smart 25 rated 80"
+                return 1
+            fi
+            generate_smart_playlist "$1" "$2" "$3"
+            ;;
+        *)
+            echo "❌ Unknown playlist command: $subcommand"
+            echo "   Available: theme, random, smart"
+            return 1
+            ;;
+    esac
+}
+
+# Main command parsing
+case "$1" in
+    mount)
+        mount_drives
+        ;;
+    status)
+        show_status
+        ;;
+    list)
+        list_files "$2"
+        ;;
+    open)
+        shift
+        open_files "$@"
+        ;;
+    playlist)
+        shift
+        handle_playlist_command "$@"
+        ;;
+    "")
+        show_usage
+        ;;
+    *)
+        echo "❌ Unknown command: $1"
+        show_usage
+        exit 1
+        ;;
+esac

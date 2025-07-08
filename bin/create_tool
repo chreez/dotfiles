@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# Tool Creation Helper - Generates permission-minimized tools
+# Usage: ./create_tool <tool_name> <description> 
+# REQUIRES: mkdir, rm, cp, sed
+
+if [ $# -lt 2 ]; then
+    echo "Usage: $0 <tool_name> <description>"
+    echo "Example: $0 convert_audio 'Convert audio files to different formats'"
+    exit 1
+fi
+
+TOOL_NAME="$1"
+DESCRIPTION="$2"
+SCRIPT_PATH="$HOME/.dotfiles/bin/$TOOL_NAME"
+
+# Use working directory for temporary files
+TMP_DIR="./tmp_create_tool_$$"
+mkdir -p "$TMP_DIR"
+trap "rm -rf $TMP_DIR" EXIT
+
+# Copy template and customize
+cp "$HOME/.dotfiles/templates/tool_template.sh" "$TMP_DIR/new_tool.sh"
+
+# Replace template variables
+sed -i '' "s/{{TOOL_NAME}}/$TOOL_NAME/g" "$TMP_DIR/new_tool.sh"
+sed -i '' "s/{{DESCRIPTION}}/$DESCRIPTION/g" "$TMP_DIR/new_tool.sh"
+sed -i '' "s/{{USAGE_EXAMPLE}}/[args]/g" "$TMP_DIR/new_tool.sh"
+sed -i '' "s/{{REQUIRED_COMMANDS}}/# TODO: List required commands/g" "$TMP_DIR/new_tool.sh"
+sed -i '' "s/{{PARAMETER_VALIDATION}}/# TODO: Add parameter validation/g" "$TMP_DIR/new_tool.sh"
+sed -i '' "s/{{DEPENDENCY_CHECKS}}/# TODO: Add dependency checks/g" "$TMP_DIR/new_tool.sh"
+sed -i '' "s/{{MAIN_FUNCTIONALITY_COMMENT}}/Main functionality/g" "$TMP_DIR/new_tool.sh"
+sed -i '' "s/{{ACTION_MESSAGE}}/Processing.../g" "$TMP_DIR/new_tool.sh"
+sed -i '' "s/{{IMPLEMENTATION_PLACEHOLDER}}/# TODO: Implement main functionality here/g" "$TMP_DIR/new_tool.sh"
+sed -i '' "s/{{SUCCESS_MESSAGE}}/Task completed!/g" "$TMP_DIR/new_tool.sh"
+
+# Move to final location and make executable
+cp "$TMP_DIR/new_tool.sh" "$SCRIPT_PATH"
+chmod +x "$SCRIPT_PATH"
+
+echo "✅ Created permission-minimized tool: $SCRIPT_PATH"
+echo ""
+echo "🚫 REMEMBER: Follow permission-minimizing design rules:"
+echo "1. Use working dir temps: TMP_DIR=\"./tmp_${TOOL_NAME}_\$\$\""
+echo "2. Consolidate commands (awk vs grep|sed|sort)"
+echo "3. Avoid cd, use absolute paths/output flags"
+echo "4. Add REQUIRES header with all commands"
+echo "5. Test with no permission prompts"
+echo ""
+echo "📝 Next steps:"
+echo "1. Edit $SCRIPT_PATH"
+echo "2. Add required commands to REQUIRES header"
+echo "3. Implement functionality following rules"
+echo "4. Test until no permission prompts"
+echo "5. Add to MCP server"
