@@ -1,28 +1,37 @@
 # Claude-Aware Dotfiles System
 
-**Tools are available as native MCP functions - no Bash tool needed!**
+**Tools are available as shell scripts via Bash tool**
 
-## Available Native Tools
+## Available Tools
 
-### transcribe_youtube(url, output_filename="transcript.txt")
+### transcribe_youtube
 - **User says:** "transcribe [youtube-url]" or "get text from [video]"
-- **Native MCP tool:** Call `transcribe_youtube()` directly
-- **Parameters:** 
-  - `url`: YouTube video URL
-  - `output_filename`: Optional output file name
+- **Shell command:** `~/.dotfiles/bin/transcribe_youtube <url> [filename]`
 - **Auto-installs:** yt-dlp via Homebrew if missing
-- **Cleanup:** Uses system tmp directory automatically
+- **Features:** Working directory temps, minimal permissions
 
-### create_atomic_tool(name, description, parameters, implementation_notes)
+### create_tool
 - **User says:** "let's create an atomic tool for [task]"
-- **Native MCP tool:** Call `create_atomic_tool()` directly
-- **Parameters:**
-  - `name`: Function name (snake_case)
-  - `description`: What the tool does
-  - `parameters`: Function parameters as string
-  - `implementation_notes`: High-level approach
-- **Creates:** New MCP tool function with placeholder implementation
-- **Activation:** Restart Claude Desktop app to load new tool
+- **Shell command:** `~/.dotfiles/bin/create_tool <name> <description>`
+- **Creates:** Permission-minimized shell script template
+- **Features:** Built-in design rules, automated reminders
+
+### network_drive_manager
+- **User says:** "open latest 10 files in rated" or "list network files" or "open network drive movies2"
+- **Shell command:** `~/.dotfiles/bin/network_drive_manager <command> [args]`
+- **Auto-mounts:** SMB shares from PC (192.168.1.236) if not mounted
+- **Features:** Natural language parsing, VLC playlist integration, smart file opening
+
+### research_youtube_topic
+- **User says:** "research YouTube videos on [topic]" or "find YouTube content about [subject]" or "compile YouTube research on [topic]"
+- **Shell command:** `~/.dotfiles/bin/research_youtube_topic <subject> [timeframe] [num_videos]`
+- **Performance limits:** Max 5 videos per topic, 2-30 min duration filter, 5min transcription timeout
+- **Features:** Web search discovery, quality scoring, batch transcription, Claude-optimized JSON output
+- **Output format:** `youtube.research.<subject-slug>.<timestamp>.json`
+- **Examples:** 
+  - `research_youtube_topic "AI news"` (3 videos from last week)
+  - `research_youtube_topic "React tutorials" "last month" 5`
+  - `research_youtube_topic "climate change" "last year" 2`
 
 ## Atomic Tool Style Guidelines
 
@@ -81,18 +90,25 @@
    - Keep working shell script in backup/ directory  
    - If MCP fails, shell version provides reliable fallback
 
-## Backup System
-- **Fallback:** Shell scripts available in `~/.dotfiles/bin/` if MCP fails
-- **Rollback:** See `~/.dotfiles/backup/README.md` for instructions
+## Claude Code CLI Compatibility
+- **Shell-first design:** All tools work as standalone shell scripts
+- **No MCP dependency:** System works in both Claude Desktop and Claude Code CLI
+- **Universal access:** Tools available via Bash tool in any Claude environment
 
 ## Creating New Atomic Tools
 - **User trigger:** "let's create an atomic tool for this"
 - **Process:**
-  1. Extract core function from recent work
-  2. Make it dependency-checking & auto-installing  
-  3. Add to ~/.dotfiles/bin/ with descriptive name
+  1. Run `~/.dotfiles/bin/create_tool <name> <description>` for shell template
+  2. Follow permission-minimizing design rules (see Tool Development Standards)
+  3. Test shell script until no permission prompts occur
   4. Update this CLAUDE.md with intent mapping
   5. Commit to git with clear description
+
+**Automated Tool Creation:**
+- Shell template: `~/.dotfiles/bin/create_tool <name> <description>`
+- Includes permission-minimizing template with design rules
+- Auto-generates proper file structure and placeholder code
+- Works with Claude Code CLI (no MCP dependency)
 
 ## Tool Discovery Rules
 - **FIRST STEP:** Always check ~/.dotfiles/bin/ for ANY part of the task
@@ -107,8 +123,46 @@
 - Manual: `git clone https://github.com/chreez/dotfiles.git ~/.dotfiles && ~/.dotfiles/install.sh`
 
 ## Tool Development Standards
+
+### Core Principles
 - Each tool is atomic (one function only)
 - Auto-install dependencies when missing
 - Use `which <tool>` checks before installing
-- Use system tmp directory: `TMP_DIR=$(mktemp -d)` + `trap "rm -rf $TMP_DIR" EXIT`
 - Log changes to git history (no separate changelog needed)
+
+### Permission-Minimizing Design Rules
+
+**CRITICAL: Tools must minimize permission requirements to avoid Claude CLI prompts**
+
+1. **File Operations:**
+   - Use working directory for temporary files: `TMP_DIR="./tmp_${tool_name}_$$"`
+   - Avoid system `/tmp/` directory (requires `mktemp` permission)
+   - Use `mkdir -p` instead of `mktemp -d`
+   - Clean up with `rm -rf $TMP_DIR` in trap
+
+2. **Command Consolidation:**
+   - Minimize number of separate commands
+   - Use built-in tool features instead of shell pipeline chains
+   - Prefer single tools that do multiple operations
+   - Example: `yt-dlp --sub-format txt` instead of `grep | sed | sort | uniq`
+
+3. **Directory Navigation:**
+   - Avoid `cd` when possible
+   - Use absolute paths or tool output flags
+   - Example: `yt-dlp -o "$TMP_DIR/%(title)s.%(ext)s"` instead of `cd && yt-dlp`
+
+4. **Text Processing:**
+   - Use `awk` instead of multiple `grep | sed | sort | uniq` chains
+   - Single `awk` command can replace 5-10 separate commands
+   - Reduces permission surface area significantly
+
+5. **Permission Scope Strategy:**
+   - List ALL required commands upfront in tool comments
+   - Group related permissions together
+   - Consider scoping global permissions to MCP tools only
+   - Example header: `# REQUIRES: yt-dlp, mkdir, rm, awk, ls`
+
+6. **Testing for Permissions:**
+   - Test tools in fresh environments to catch permission issues
+   - Document exact command list needed for global permissions
+   - Prefer tools that work with minimal system access
