@@ -92,14 +92,39 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 ⚙️  Parameters: {parameters}  
 🔧 Notes: {notes}
 
+🚫 PERMISSION-MINIMIZING DESIGN RULES:
+
+1. **File Operations:**
+   - Use working directory: TMP_DIR="./tmp_{name}_$$"
+   - Avoid system /tmp/ directory (requires mktemp permission)
+   - Use mkdir -p instead of mktemp -d
+   - Clean up with rm -rf $TMP_DIR in trap
+
+2. **Command Consolidation:**
+   - Minimize number of separate commands
+   - Use built-in tool features instead of shell pipeline chains
+   - Single awk instead of grep|sed|sort|uniq chains
+   - Example: tool --output-format instead of tool | grep | sed
+
+3. **Directory Navigation:**
+   - Avoid cd when possible
+   - Use absolute paths or tool output flags
+   - Example: tool -o "$TMP_DIR/file" instead of cd && tool
+
+4. **Required Permissions Header:**
+   - Add: # REQUIRES: command1, command2, command3
+   - List ALL commands needed for global permissions
+   - Keep list minimal (aim for <8 commands)
+
 🧪 TESTING PROTOCOL:
 1. Create shell script: ~/.dotfiles/bin/{name}
-2. Test shell script until it works
-3. Replace this MCP framework with real implementation
-4. Test MCP version
-5. Both must pass ✅
+2. Follow permission-minimizing rules above
+3. Test shell script until it works (no permission prompts)
+4. Replace this MCP framework with real implementation  
+5. Test MCP version
+6. Both must pass ✅
 
-⚠️  This is just the framework - implement the real functionality."""
+⚠️  This is just the framework - implement following the permission rules."""
         )]
         
     else:
