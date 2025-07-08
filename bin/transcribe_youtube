@@ -1,56 +1,39 @@
 #!/bin/bash
 
 # YouTube Transcription Script
-# Usage: ./transcribe_youtube <youtube_url> [output_filename]
+# Usage: ./transcribe_youtube.sh <youtube_url> [output_filename]
+# REQUIRES: yt-dlp, mkdir, rm, ls, head, awk, sed, tr, cut, brew (for auto-install)
 
 if [ $# -eq 0 ]; then
     echo "Usage: $0 <youtube_url> [output_filename]"
-    echo "Example: $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"
-    echo "Auto-generates intuitive filename from video title if not specified"
+    echo "Example: $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' my_transcript.txt"
     exit 1
 fi
 
 URL="$1"
-OUTPUT="$2"
 
-# Generate filename from video title if not provided
-generate_filename() {
-    local url="$1"
-    
-    # Extract video title
-    local title=$(yt-dlp --print title --no-warnings "$url" 2>/dev/null)
-    if [ $? -ne 0 ] || [ -z "$title" ]; then
-        echo "transcript.txt"
-        return
-    fi
-    
-    # Extract video ID from URL
-    local video_id=$(echo "$url" | grep -oE '([0-9A-Za-z_-]{11})')
-    if [ -z "$video_id" ]; then
-        video_id="unknown"
-    fi
-    
-    # Clean title: remove special chars, convert to lowercase
-    local cleaned=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9 ]//g' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
-    
-    # Take first 6 words
-    local short_title=$(echo "$cleaned" | cut -d' ' -f1-6 | tr ' ' '.')
-    
-    # Truncate if too long
-    if [ ${#short_title} -gt 50 ]; then
-        short_title="${short_title:0:47}..."
-    fi
-    
-    echo "${short_title}.${video_id}.txt"
-}
+# Extract YouTube video ID from URL
+VIDEO_ID=$(echo "$URL" | sed -n 's/.*[?&]v=\([^&]*\).*/\1/p' | head -c 11)
 
-# Use provided filename or generate one
-if [ -z "$OUTPUT" ]; then
-    OUTPUT=$(generate_filename "$URL")
+# Get video title and create filename if not provided
+if [ -z "$2" ]; then
+    # Get video title using yt-dlp
+    VIDEO_TITLE=$(yt-dlp --get-title "$URL" 2>/dev/null | head -1)
+    
+    if [ -n "$VIDEO_TITLE" ]; then
+        # Clean title: lowercase, replace spaces/special chars with dots, limit length
+        CLEAN_TITLE=$(echo "$VIDEO_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/ /g' | tr -s ' ' | sed 's/^ *//;s/ *$//' | tr ' ' '.' | cut -c1-40)
+        OUTPUT="${CLEAN_TITLE}.${VIDEO_ID}.txt"
+    else
+        OUTPUT="transcript.${VIDEO_ID}.txt"
+    fi
+else
+    OUTPUT="$2"
 fi
 
-# Create temporary directory and clean up on exit
-TMP_DIR=$(mktemp -d)
+# Use working directory for temporary files to avoid permission issues
+TMP_DIR="./tmp_transcribe_$$"
+mkdir -p "$TMP_DIR"
 trap "rm -rf $TMP_DIR" EXIT
 
 # Check if yt-dlp is installed
@@ -61,28 +44,18 @@ fi
 
 # Extract subtitles to temporary directory
 echo "Extracting subtitles from: $URL"
-cd "$TMP_DIR"
-yt-dlp --write-subs --write-auto-subs --sub-langs en --skip-download "$URL"
+yt-dlp --write-subs --write-auto-subs --sub-langs en --skip-download -o "$TMP_DIR/%(title)s.%(ext)s" "$URL"
 
 # Find the VTT file (handles special characters in filenames)
-VTT_FILE=$(find . -name "*.en.vtt" -type f | head -1)
+VTT_FILE=$(ls "$TMP_DIR"/*.en.vtt 2>/dev/null | head -1)
 
 if [ -z "$VTT_FILE" ]; then
     echo "No subtitle file found. Video may not have subtitles available."
     exit 1
 fi
 
-# Clean up the VTT file to plain text and save to specified output location
+# Clean up the VTT file to plain text
 echo "Cleaning transcript..."
-grep -v "^WEBVTT" "$VTT_FILE" | \
-grep -v "^$" | \
-grep -v "^[0-9][0-9]:" | \
-grep -v "Kind:" | \
-grep -v "Language:" | \
-sed 's/<[^>]*>//g' | \
-sort -n | \
-uniq | \
-grep -v "^$" | \
-sed 's/^[[:space:]]*//' > "$OLDPWD/$OUTPUT"
+awk '/^WEBVTT/{next} /^$/{next} /^[0-9][0-9]:/{next} /Kind:/{next} /Language:/{next} {gsub(/<[^>]*>/,""); if(length && !seen[$0]++) print}' "$VTT_FILE" > "$OUTPUT"
 
 echo "Transcript saved to: $OUTPUT"
