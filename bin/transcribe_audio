@@ -1,0 +1,198 @@
+#!/bin/bash
+
+# transcribe_audio - Convert audio files to text using whisper.cpp with cloud fallback
+# Usage: ./transcribe_audio <audio_file> [output_file] [--cloud] [--model=small|medium|large-v3-turbo]
+# REQUIRES: whisper-cpp, ffmpeg, curl, stat, wc, mkdir, rm, ls, head, awk, sed, tr, cut, brew (for auto-install)
+
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <audio_file> [output_file] [--cloud] [--model=small|medium|large-v3-turbo]"
+    echo "Examples:"
+    echo "  $0 podcast.mp3"
+    echo "  $0 interview.wav transcript.txt"
+    echo "  $0 long_file.mp3 --cloud"
+    echo "  $0 speech.mp3 --model=large-v3-turbo"
+    exit 1
+fi
+
+# Parse arguments
+AUDIO_FILE="$1"
+OUTPUT_FILE=""
+USE_CLOUD=false
+MODEL=""
+
+# Parse optional arguments
+shift
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --cloud)
+            USE_CLOUD=true
+            shift
+            ;;
+        --model=*)
+            MODEL="${1#*=}"
+            shift
+            ;;
+        *)
+            if [[ -z "$OUTPUT_FILE" ]]; then
+                OUTPUT_FILE="$1"
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Check if input file exists
+if [[ ! -f "$AUDIO_FILE" ]]; then
+    echo "Error: Audio file '$AUDIO_FILE' not found"
+    exit 1
+fi
+
+# Generate output filename if not provided
+if [[ -z "$OUTPUT_FILE" ]]; then
+    # Extract base filename without extension
+    BASENAME=$(basename "$AUDIO_FILE" | sed 's/\.[^.]*$//')
+    # Create a hash from the filename for uniqueness
+    HASH=$(echo "$BASENAME" | shasum -a 256 | cut -c1-8)
+    # Clean the basename for filename
+    CLEAN_NAME=$(echo "$BASENAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/ /g' | tr -s ' ' | sed 's/^ *//;s/ *$//' | tr ' ' '.' | cut -c1-40)
+    OUTPUT_FILE="audio.transcript.${CLEAN_NAME}.${HASH}.txt"
+fi
+
+# Use working directory for temporary files to avoid permission issues
+TMP_DIR="./tmp_transcribe_audio_$$"
+mkdir -p "$TMP_DIR"
+trap "rm -rf $TMP_DIR" EXIT
+
+# Function to get file size in MB
+get_file_size_mb() {
+    local file="$1"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        stat -f%z "$file" | awk '{print int($1/1024/1024)}'
+    else
+        stat -c%s "$file" | awk '{print int($1/1024/1024)}'
+    fi
+}
+
+# Function to transcribe using cloud API
+transcribe_cloud() {
+    local audio_file="$1"
+    local output_file="$2"
+    
+    if [[ -z "$OPENAI_API_KEY" ]]; then
+        echo "Error: OPENAI_API_KEY environment variable not set for cloud transcription"
+        exit 1
+    fi
+    
+    echo "Transcribing using OpenAI Whisper API..."
+    
+    # Upload and transcribe
+    curl -s -X POST "https://api.openai.com/v1/audio/transcriptions" \
+        -H "Authorization: Bearer $OPENAI_API_KEY" \
+        -H "Content-Type: multipart/form-data" \
+        -F "file=@$audio_file" \
+        -F "model=whisper-1" \
+        -F "response_format=text" > "$output_file"
+    
+    if [[ $? -eq 0 ]] && [[ -s "$output_file" ]]; then
+        echo "Cloud transcription completed successfully"
+        return 0
+    else
+        echo "Cloud transcription failed"
+        return 1
+    fi
+}
+
+# Function to transcribe using local whisper.cpp
+transcribe_local() {
+    local audio_file="$1"
+    local output_file="$2"
+    local model="$3"
+    
+    # Determine model if not specified
+    if [[ -z "$model" ]]; then
+        local file_size=$(get_file_size_mb "$audio_file")
+        if [[ $file_size -lt 10 ]]; then
+            model="small"
+        elif [[ $file_size -lt 50 ]]; then
+            model="medium"
+        else
+            model="large-v3-turbo"
+        fi
+    fi
+    
+    # Check if whisper.cpp is installed
+    if ! command -v whisper-cli &> /dev/null; then
+        echo "whisper-cli not found. Installing via Homebrew..."
+        brew install whisper-cpp
+    fi
+    
+    # Ensure model directory exists
+    mkdir -p ~/.whisper.cpp/models
+    
+    # Download model if it doesn't exist
+    local model_file="$HOME/.whisper.cpp/models/ggml-${model}.bin"
+    if [[ ! -f "$model_file" ]]; then
+        echo "Downloading whisper model: $model..."
+        local model_url="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-${model}.bin"
+        curl -L -o "$model_file" "$model_url"
+        
+        if [[ $? -ne 0 ]]; then
+            echo "Failed to download model: $model"
+            return 1
+        fi
+    fi
+    
+    # Check if ffmpeg is installed
+    if ! command -v ffmpeg &> /dev/null; then
+        echo "ffmpeg not found. Installing via Homebrew..."
+        brew install ffmpeg
+    fi
+    
+    # Convert audio to 16kHz WAV for whisper.cpp
+    local wav_file="$TMP_DIR/audio.wav"
+    echo "Converting audio to 16kHz WAV..."
+    ffmpeg -i "$audio_file" -ar 16000 -ac 1 -c:a pcm_s16le "$wav_file" -y -loglevel error
+    
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to convert audio file"
+        return 1
+    fi
+    
+    echo "Transcribing with whisper.cpp (model: $model)..."
+    
+    # Run whisper.cpp
+    whisper-cli -m "$HOME/.whisper.cpp/models/ggml-${model}.bin" -f "$wav_file" -otxt -of "$TMP_DIR/output" --no-timestamps
+    
+    if [[ $? -eq 0 ]] && [[ -f "$TMP_DIR/output.txt" ]]; then
+        # Clean up the output and copy to final location
+        cat "$TMP_DIR/output.txt" > "$output_file"
+        echo "Local transcription completed successfully"
+        return 0
+    else
+        echo "Local transcription failed"
+        return 1
+    fi
+}
+
+# Main transcription logic
+echo "Processing audio file: $AUDIO_FILE"
+
+if [[ "$USE_CLOUD" == true ]]; then
+    # Cloud transcription requested
+    transcribe_cloud "$AUDIO_FILE" "$OUTPUT_FILE"
+else
+    # Try local transcription first
+    if transcribe_local "$AUDIO_FILE" "$OUTPUT_FILE" "$MODEL"; then
+        echo "Transcript saved to: $OUTPUT_FILE"
+    else
+        echo "Local transcription failed. Trying cloud fallback..."
+        if transcribe_cloud "$AUDIO_FILE" "$OUTPUT_FILE"; then
+            echo "Transcript saved to: $OUTPUT_FILE"
+        else
+            echo "Both local and cloud transcription failed"
+            exit 1
+        fi
+    fi
+fi
+
+echo "Transcript saved to: $OUTPUT_FILE"

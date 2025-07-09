@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# YouTube Transcription Script
-# Usage: ./transcribe_youtube.sh <youtube_url> [output_filename]
+# extract_youtube_audio - Extract audio from YouTube videos in MP3 format
+# Usage: ./extract_youtube_audio <youtube_url> [output_filename]
 # REQUIRES: yt-dlp, mkdir, rm, ls, head, awk, sed, tr, cut, brew (for auto-install)
 
 if [ $# -eq 0 ]; then
     echo "Usage: $0 <youtube_url> [output_filename]"
-    echo "Example: $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' my_transcript.txt"
+    echo "Example: $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' my_audio.mp3"
     exit 1
 fi
 
@@ -15,7 +15,6 @@ fi
 URL="$1"
 
 # Extract YouTube video ID from URL
-# The sed pattern properly handles URLs with query parameters
 VIDEO_ID=$(echo "$URL" | sed -n 's/.*[?&]v=\([^&]*\).*/\1/p' | head -c 11)
 
 # Get video title and create filename if not provided
@@ -26,16 +25,16 @@ if [ -z "$2" ]; then
     if [ -n "$VIDEO_TITLE" ]; then
         # Clean title: lowercase, replace spaces/special chars with dots, limit length
         CLEAN_TITLE=$(echo "$VIDEO_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/ /g' | tr -s ' ' | sed 's/^ *//;s/ *$//' | tr ' ' '.' | cut -c1-40)
-        OUTPUT="${CLEAN_TITLE}.${VIDEO_ID}.txt"
+        OUTPUT="${CLEAN_TITLE}.${VIDEO_ID}.mp3"
     else
-        OUTPUT="transcript.${VIDEO_ID}.txt"
+        OUTPUT="audio.${VIDEO_ID}.mp3"
     fi
 else
     OUTPUT="$2"
 fi
 
 # Use working directory for temporary files to avoid permission issues
-TMP_DIR="./tmp_transcribe_$$"
+TMP_DIR="./tmp_extract_youtube_audio_$$"
 mkdir -p "$TMP_DIR"
 trap "rm -rf $TMP_DIR" EXIT
 
@@ -45,20 +44,19 @@ if ! command -v yt-dlp &> /dev/null; then
     brew install yt-dlp
 fi
 
-# Extract subtitles to temporary directory
-echo "Extracting subtitles from: $URL"
-yt-dlp --write-subs --write-auto-subs --sub-langs en --skip-download -o "$TMP_DIR/%(title)s.%(ext)s" "$URL"
+# Extract audio from YouTube video
+echo "Extracting audio from: $URL"
+yt-dlp --extract-audio --audio-format mp3 --audio-quality 0 -o "$TMP_DIR/%(title)s.%(ext)s" "$URL"
 
-# Find the VTT file (handles special characters in filenames)
-VTT_FILE=$(ls "$TMP_DIR"/*.en.vtt 2>/dev/null | head -1)
+# Find the MP3 file (handles special characters in filenames)
+MP3_FILE=$(ls "$TMP_DIR"/*.mp3 2>/dev/null | head -1)
 
-if [ -z "$VTT_FILE" ]; then
-    echo "No subtitle file found. Video may not have subtitles available."
+if [ -z "$MP3_FILE" ]; then
+    echo "No audio file found. Video may not have audio available."
     exit 1
 fi
 
-# Clean up the VTT file to plain text
-echo "Cleaning transcript..."
-awk '/^WEBVTT/{next} /^$/{next} /^[0-9][0-9]:/{next} /Kind:/{next} /Language:/{next} {gsub(/<[^>]*>/,""); if(length && !seen[$0]++) print}' "$VTT_FILE" > "$OUTPUT"
+# Move the file to the desired output name
+mv "$MP3_FILE" "$OUTPUT"
 
-echo "Transcript saved to: $OUTPUT"
+echo "Audio saved to: $OUTPUT"

@@ -9,6 +9,10 @@
 - **Shell command:** `~/.dotfiles/bin/transcribe_youtube <url> [filename]`
 - **Auto-installs:** yt-dlp via Homebrew if missing
 - **Features:** Working directory temps, minimal permissions
+- **Important:** URLs with special characters (like ?) should be quoted to prevent shell expansion errors
+- **Examples:**
+  - `~/.dotfiles/bin/transcribe_youtube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"`
+  - `~/.dotfiles/bin/transcribe_youtube "https://youtu.be/dQw4w9WgXcQ" custom_name.txt`
 
 ### create_tool
 - **User says:** "let's create an atomic tool for [task]"
@@ -32,6 +36,29 @@
   - `research_youtube_topic "AI news"` (3 videos from last week)
   - `research_youtube_topic "React tutorials" "last month" 5`
   - `research_youtube_topic "climate change" "last year" 2`
+
+### extract_youtube_audio
+- **User says:** "extract audio from [youtube-url]" or "download music from [video]" or "get mp3 from [youtube]"
+- **Shell command:** `~/.dotfiles/bin/extract_youtube_audio <url> [filename]`
+- **Auto-installs:** yt-dlp via Homebrew if missing
+- **Features:** Working directory temps, minimal permissions, smart filename generation
+- **Important:** URLs with special characters (like ?) should be quoted to prevent shell expansion errors
+- **Examples:**
+  - `~/.dotfiles/bin/extract_youtube_audio "https://www.youtube.com/watch?v=dQw4w9WgXcQ"`
+  - `~/.dotfiles/bin/extract_youtube_audio "https://youtu.be/dQw4w9WgXcQ" my_song.mp3`
+
+### transcribe_audio
+- **User says:** "transcribe [audio-file]" or "convert audio to text" or "speech to text [file]"
+- **Shell command:** `~/.dotfiles/bin/transcribe_audio <audio_file> [output_file] [--cloud] [--model=small|medium|large-v3-turbo]`
+- **Auto-installs:** whisper-cpp, ffmpeg via Homebrew if missing
+- **Features:** Local-first privacy, smart model selection, cloud fallback, format conversion
+- **Privacy:** Local processing by default, cloud only with --cloud flag or as fallback
+- **Model selection:** Auto-selects based on file size (small<10MB, medium<50MB, large-v3-turbo>50MB)
+- **Examples:**
+  - `~/.dotfiles/bin/transcribe_audio podcast.mp3`
+  - `~/.dotfiles/bin/transcribe_audio interview.wav transcript.txt`
+  - `~/.dotfiles/bin/transcribe_audio long_file.mp3 --cloud`
+  - `~/.dotfiles/bin/transcribe_audio speech.mp3 --model=large-v3-turbo`
 
 ## Atomic Tool Style Guidelines
 
@@ -90,6 +117,13 @@
    - Keep working shell script in backup/ directory  
    - If MCP fails, shell version provides reliable fallback
 
+6. **Git Commit Requirement:**
+   - **MANDATORY:** Every fully tested tool must be committed to git
+   - Commit message format: `Add <tool_name>: <brief_description>`
+   - Include test results and usage examples in commit message
+   - Ensure .dotfiles directory is clean after commit (no untracked files)
+   - Use `git status` to verify clean state before proceeding
+
 ## Claude Code CLI Compatibility
 - **Shell-first design:** All tools work as standalone shell scripts
 - **No MCP dependency:** System works in both Claude Desktop and Claude Code CLI
@@ -102,7 +136,8 @@
   2. Follow permission-minimizing design rules (see Tool Development Standards)
   3. Test shell script until no permission prompts occur
   4. Update this CLAUDE.md with intent mapping
-  5. Commit to git with clear description
+  5. **MANDATORY:** Commit to git with clear description after full testing
+  6. **MANDATORY:** Ensure .dotfiles directory is clean after commit
 
 **Automated Tool Creation:**
 - Shell template: `~/.dotfiles/bin/create_tool <name> <description>`
