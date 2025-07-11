@@ -1,16 +1,18 @@
 #!/bin/bash
 
-# transcribe_audio - Convert audio files to text using whisper.cpp with cloud fallback
-# Usage: ./transcribe_audio <audio_file> [output_file] [--cloud] [--model=small|medium|large-v3-turbo]
+# transcribe_audio - Convert audio files to text using whisper.cpp with smart chunking and cloud fallback
+# Usage: ./transcribe_audio <audio_file> [output_file] [--cloud] [--model=small|medium|large-v3-turbo] [--chunk-size=30] [--no-chunk]
 # REQUIRES: whisper-cpp, ffmpeg, curl, stat, wc, mkdir, rm, ls, head, awk, sed, tr, cut, brew (for auto-install)
 
 if [ $# -eq 0 ]; then
-    echo "Usage: $0 <audio_file> [output_file] [--cloud] [--model=small|medium|large-v3-turbo]"
+    echo "Usage: $0 <audio_file> [output_file] [--cloud] [--model=small|medium|large-v3-turbo] [--chunk-size=30] [--no-chunk]"
     echo "Examples:"
     echo "  $0 podcast.mp3"
     echo "  $0 interview.wav transcript.txt"
     echo "  $0 long_file.mp3 --cloud"
     echo "  $0 speech.mp3 --model=large-v3-turbo"
+    echo "  $0 long_video.mp3 --chunk-size=30  # Use 30-second chunks (default)"
+    echo "  $0 short_clip.mp3 --no-chunk       # Disable chunking for short files"
     exit 1
 fi
 
@@ -19,6 +21,8 @@ AUDIO_FILE="$1"
 OUTPUT_FILE=""
 USE_CLOUD=false
 MODEL=""
+CHUNK_SIZE=30
+USE_CHUNKING=true
 
 # Parse optional arguments
 shift
@@ -30,6 +34,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --model=*)
             MODEL="${1#*=}"
+            shift
+            ;;
+        --chunk-size=*)
+            CHUNK_SIZE="${1#*=}"
+            shift
+            ;;
+        --no-chunk)
+            USE_CHUNKING=false
             shift
             ;;
         *)
@@ -73,6 +85,70 @@ get_file_size_mb() {
     fi
 }
 
+# Function to get audio duration in seconds
+get_audio_duration() {
+    local file="$1"
+    ffprobe -v quiet -show_entries format=duration -of csv=p=0 "$file" 2>/dev/null | awk '{print int($1)}'
+}
+
+# Function to detect silence for natural break points
+detect_silence_breaks() {
+    local audio_file="$1"
+    local chunk_size="$2"
+    
+    # Use ffmpeg to detect silence periods (at least 0.5 seconds of silence below -50dB)
+    ffmpeg -i "$audio_file" -af silencedetect=noise=-50dB:duration=0.5 -f null - 2>&1 | \
+        grep "silence_end" | \
+        awk -F'[: ]' '{print $5}' | \
+        awk -v chunk_size="$chunk_size" '
+        {
+            # Find silence breaks near chunk boundaries
+            target = int(NR * chunk_size)
+            diff = ($1 > target) ? ($1 - target) : (target - $1)
+            if (diff < 5) print $1  # Within 5 seconds of target
+        }'
+}
+
+# Function to split audio into chunks (simplified)
+split_audio_chunks() {
+    local audio_file="$1"
+    local chunk_size="$2"
+    local output_dir="$3"
+    
+    local duration=$(get_audio_duration "$audio_file")
+    
+    if [[ $duration -le $chunk_size ]]; then
+        # File is shorter than chunk size, no need to split
+        cp "$audio_file" "$output_dir/chunk_001.wav"
+        echo "1"
+        return
+    fi
+    
+    echo "Splitting audio (${duration}s) into ${chunk_size}s chunks..."
+    
+    # Use simple fixed-size chunks with overlap
+    local chunk_num=1
+    local start_time=0
+    local overlap=2
+    
+    while [[ $start_time -lt $duration ]]; do
+        local end_time=$((start_time + chunk_size))
+        local actual_duration=$chunk_size
+        
+        if [[ $end_time -gt $duration ]]; then
+            actual_duration=$((duration - start_time))
+        fi
+        
+        printf -v chunk_name "%s/chunk_%03d.wav" "$output_dir" "$chunk_num"
+        ffmpeg -i "$audio_file" -ss "$start_time" -t "$actual_duration" -ar 16000 -ac 1 -c:a pcm_s16le "$chunk_name" -loglevel error
+        
+        start_time=$((start_time + chunk_size - overlap))
+        ((chunk_num++))
+    done
+    
+    echo $((chunk_num - 1))
+}
+
 # Function to transcribe using cloud API
 transcribe_cloud() {
     local audio_file="$1"
@@ -102,8 +178,8 @@ transcribe_cloud() {
     fi
 }
 
-# Function to transcribe using local whisper.cpp
-transcribe_local() {
+# Function to transcribe using local whisper.cpp (single file)
+transcribe_local_single() {
     local audio_file="$1"
     local output_file="$2"
     local model="$3"
@@ -174,25 +250,200 @@ transcribe_local() {
     fi
 }
 
+# Function to transcribe using chunked processing
+transcribe_local_chunked() {
+    local audio_file="$1"
+    local output_file="$2"
+    local model="$3"
+    local chunk_size="$4"
+    
+    # Determine model if not specified (smaller models for chunks)
+    if [[ -z "$model" ]]; then
+        local file_size=$(get_file_size_mb "$audio_file")
+        if [[ $file_size -lt 10 ]]; then
+            model="small"
+        elif [[ $file_size -lt 50 ]]; then
+            model="medium"
+        else
+            model="medium"  # Use medium for chunked processing even on large files
+        fi
+    fi
+    
+    # Check if whisper.cpp is installed
+    if ! command -v whisper-cli &> /dev/null; then
+        echo "whisper-cli not found. Installing via Homebrew..."
+        brew install whisper-cpp
+    fi
+    
+    # Ensure model directory exists
+    mkdir -p ~/.whisper.cpp/models
+    
+    # Download model if it doesn't exist
+    local model_file="$HOME/.whisper.cpp/models/ggml-${model}.bin"
+    if [[ ! -f "$model_file" ]]; then
+        echo "Downloading whisper model: $model..."
+        local model_url="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-${model}.bin"
+        curl -L -o "$model_file" "$model_url"
+        
+        if [[ $? -ne 0 ]]; then
+            echo "Failed to download model: $model"
+            return 1
+        fi
+    fi
+    
+    # Check if ffmpeg is installed
+    if ! command -v ffmpeg &> /dev/null; then
+        echo "ffmpeg not found. Installing via Homebrew..."
+        brew install ffmpeg
+    fi
+    
+    # Note: bc is no longer required, using bash arithmetic instead
+    
+    # Convert audio to 16kHz WAV for processing
+    local wav_file="$TMP_DIR/input.wav"
+    echo "Converting audio to 16kHz WAV..."
+    ffmpeg -i "$audio_file" -ar 16000 -ac 1 -c:a pcm_s16le "$wav_file" -y -loglevel error
+    
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to convert audio file"
+        return 1
+    fi
+    
+    # Create chunks directory
+    local chunks_dir="$TMP_DIR/chunks"
+    mkdir -p "$chunks_dir"
+    
+    # Split audio into chunks
+    echo "Splitting audio into chunks..."
+    local num_chunks=$(split_audio_chunks "$wav_file" "$chunk_size" "$chunks_dir")
+    
+    if [[ $num_chunks -eq 0 ]]; then
+        echo "Error: Failed to create audio chunks"
+        return 1
+    fi
+    
+    echo "Created $num_chunks chunks, transcribing each..."
+    
+    # Transcribe each chunk
+    local transcripts_dir="$TMP_DIR/transcripts"
+    mkdir -p "$transcripts_dir"
+    
+    for ((i=1; i<=num_chunks; i++)); do
+        printf -v chunk_file "%s/chunk_%03d.wav" "$chunks_dir" "$i"
+        printf -v transcript_file "%s/transcript_%03d.txt" "$transcripts_dir" "$i"
+        
+        if [[ -f "$chunk_file" ]]; then
+            echo "Processing chunk $i/$num_chunks..."
+            
+            # Add timeout to prevent hanging
+            timeout 120 whisper-cli -m "$model_file" -f "$chunk_file" -otxt -of "$transcripts_dir/chunk_${i}" --no-timestamps
+            
+            if [[ $? -eq 0 ]] && [[ -f "$transcripts_dir/chunk_${i}.txt" ]]; then
+                mv "$transcripts_dir/chunk_${i}.txt" "$transcript_file"
+            else
+                echo "Warning: Failed to transcribe chunk $i, creating empty transcript"
+                echo "" > "$transcript_file"
+            fi
+        fi
+    done
+    
+    # Combine all transcripts
+    echo "Combining transcripts..."
+    rm -f "$output_file"
+    
+    for ((i=1; i<=num_chunks; i++)); do
+        printf -v transcript_file "%s/transcript_%03d.txt" "$transcripts_dir" "$i"
+        if [[ -f "$transcript_file" ]]; then
+            cat "$transcript_file" >> "$output_file"
+            echo " " >> "$output_file"  # Add space between chunks
+        fi
+    done
+    
+    # Clean up extra whitespace
+    sed -i.bak '/^[[:space:]]*$/d' "$output_file" 2>/dev/null || true
+    rm -f "$output_file.bak" 2>/dev/null || true
+    
+    if [[ -f "$output_file" ]] && [[ -s "$output_file" ]]; then
+        echo "Chunked transcription completed successfully"
+        return 0
+    else
+        echo "Chunked transcription failed"
+        return 1
+    fi
+}
+
+# Function to transcribe using local whisper.cpp (with chunking logic)
+transcribe_local() {
+    local audio_file="$1"
+    local output_file="$2"
+    local model="$3"
+    
+    # Determine if we should use chunking
+    duration=$(get_audio_duration "$audio_file")
+    file_size=$(get_file_size_mb "$audio_file")
+    
+    # Use chunking if:
+    # - File is longer than 5 minutes (300 seconds) OR
+    # - File is larger than 25MB OR
+    # - Chunking is explicitly enabled
+    if [[ $USE_CHUNKING == true ]] && [[ ($duration -gt 300 || $file_size -gt 25) ]]; then
+        echo "Using chunked processing for large file (${duration}s, ${file_size}MB)"
+        transcribe_local_chunked "$audio_file" "$output_file" "$model" "$CHUNK_SIZE"
+    else
+        echo "Using single-file processing (${duration}s, ${file_size}MB)"
+        transcribe_local_single "$audio_file" "$output_file" "$model"
+    fi
+}
+
 # Main transcription logic
 echo "Processing audio file: $AUDIO_FILE"
 
+# Progressive fallback strategy
 if [[ "$USE_CLOUD" == true ]]; then
     # Cloud transcription requested
-    transcribe_cloud "$AUDIO_FILE" "$OUTPUT_FILE"
+    if transcribe_cloud "$AUDIO_FILE" "$OUTPUT_FILE"; then
+        echo "Transcript saved to: $OUTPUT_FILE"
+        exit 0
+    else
+        echo "Cloud transcription failed"
+        exit 1
+    fi
 else
+    # Try local transcription with progressive fallback
+    success=false
+    
     # Try local transcription first
     if transcribe_local "$AUDIO_FILE" "$OUTPUT_FILE" "$MODEL"; then
-        echo "Transcript saved to: $OUTPUT_FILE"
+        success=true
     else
-        echo "Local transcription failed. Trying cloud fallback..."
-        if transcribe_cloud "$AUDIO_FILE" "$OUTPUT_FILE"; then
-            echo "Transcript saved to: $OUTPUT_FILE"
-        else
-            echo "Both local and cloud transcription failed"
-            exit 1
+        echo "Local transcription failed."
+        
+        # If chunking was used and failed, try single-file processing
+        if [[ $USE_CHUNKING == true ]]; then
+            duration=$(get_audio_duration "$AUDIO_FILE")
+            file_size=$(get_file_size_mb "$AUDIO_FILE")
+            
+            if [[ $duration -gt 300 || $file_size -gt 25 ]]; then
+                echo "Trying single-file processing as fallback..."
+                if transcribe_local_single "$AUDIO_FILE" "$OUTPUT_FILE" "small"; then
+                    success=true
+                fi
+            fi
+        fi
+        
+        # If still failed, try cloud fallback
+        if [[ $success == false ]]; then
+            echo "Trying cloud fallback..."
+            if transcribe_cloud "$AUDIO_FILE" "$OUTPUT_FILE"; then
+                success=true
+            fi
         fi
     fi
+    
+    if [[ $success == true ]]; then
+        echo "Transcript saved to: $OUTPUT_FILE"
+    else
+        echo "All transcription methods failed"
+        exit 1
+    fi
 fi
-
-echo "Transcript saved to: $OUTPUT_FILE"

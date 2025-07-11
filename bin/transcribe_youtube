@@ -1,25 +1,60 @@
 #!/bin/bash
 
-# YouTube Transcription Script
-# Usage: ./transcribe_youtube.sh <youtube_url> [output_filename]
+# YouTube Transcription Script with Smart Audio Processing
+# Usage: ./transcribe_youtube.sh <youtube_url> [output_filename] [--method=auto|subtitles|audio] [--chunk-size=30] [--model=small|medium|large-v3-turbo]
 # REQUIRES: yt-dlp, mkdir, rm, ls, head, awk, sed, tr, cut, brew (for auto-install)
 
 if [ $# -eq 0 ]; then
-    echo "Usage: $0 <youtube_url> [output_filename]"
-    echo "Example: $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' my_transcript.txt"
+    echo "Usage: $0 <youtube_url> [output_filename] [--method=auto|subtitles|audio] [--chunk-size=30] [--model=small|medium|large-v3-turbo]"
+    echo "Examples:"
+    echo "  $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' my_transcript.txt"
+    echo "  $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' --method=audio --chunk-size=30"
+    echo "  $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' --method=subtitles  # Fast but less accurate"
+    echo "  $0 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' --method=auto       # Try subtitles first, fallback to audio"
     exit 1
 fi
 
+# Parse arguments
+URL="$1"
+OUTPUT_FILE=""
+METHOD="auto"
+CHUNK_SIZE=30
+MODEL=""
+
+# Parse optional arguments
+shift
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --method=*)
+            METHOD="${1#*=}"
+            shift
+            ;;
+        --chunk-size=*)
+            CHUNK_SIZE="${1#*=}"
+            shift
+            ;;
+        --model=*)
+            MODEL="${1#*=}"
+            shift
+            ;;
+        *)
+            if [[ -z "$OUTPUT_FILE" ]]; then
+                OUTPUT_FILE="$1"
+            fi
+            shift
+            ;;
+    esac
+done
+
 # Quote the URL to handle special characters like ? and &
 # This prevents shell glob expansion errors
-URL="$1"
 
 # Extract YouTube video ID from URL
 # The sed pattern properly handles URLs with query parameters
 VIDEO_ID=$(echo "$URL" | sed -n 's/.*[?&]v=\([^&]*\).*/\1/p' | head -c 11)
 
-# Get video title and create filename if not provided
-if [ -z "$2" ]; then
+# Generate output filename if not provided
+if [[ -z "$OUTPUT_FILE" ]]; then
     # Get video title using yt-dlp
     VIDEO_TITLE=$(yt-dlp --get-title "$URL" 2>/dev/null | head -1)
     
@@ -31,7 +66,7 @@ if [ -z "$2" ]; then
         OUTPUT="transcript.${VIDEO_ID}.txt"
     fi
 else
-    OUTPUT="$2"
+    OUTPUT="$OUTPUT_FILE"
 fi
 
 # Use working directory for temporary files to avoid permission issues
@@ -45,20 +80,146 @@ if ! command -v yt-dlp &> /dev/null; then
     brew install yt-dlp
 fi
 
-# Extract subtitles to temporary directory
-echo "Extracting subtitles from: $URL"
-yt-dlp --write-subs --write-auto-subs --sub-langs en --skip-download -o "$TMP_DIR/%(title)s.%(ext)s" "$URL"
+# Function to extract subtitles
+extract_subtitles() {
+    local url="$1"
+    local output_file="$2"
+    
+    echo "Extracting subtitles from: $url"
+    
+    # Extract subtitles to temporary directory
+    yt-dlp --write-subs --write-auto-subs --sub-langs en --skip-download -o "$TMP_DIR/%(title)s.%(ext)s" "$url"
+    
+    # Find the VTT file (handles special characters in filenames)
+    VTT_FILE=$(ls "$TMP_DIR"/*.en.vtt 2>/dev/null | head -1)
+    
+    if [ -z "$VTT_FILE" ]; then
+        echo "No subtitle file found. Video may not have subtitles available."
+        return 1
+    fi
+    
+    # Clean up the VTT file to plain text
+    echo "Cleaning transcript..."
+    awk '/^WEBVTT/{next} /^$/{next} /^[0-9][0-9]:/{next} /Kind:/{next} /Language:/{next} {gsub(/<[^>]*>/,""); if(length && !seen[$0]++) print}' "$VTT_FILE" > "$output_file"
+    
+    if [[ -f "$output_file" ]] && [[ -s "$output_file" ]]; then
+        echo "Subtitle extraction completed successfully"
+        return 0
+    else
+        echo "Subtitle extraction failed"
+        return 1
+    fi
+}
 
-# Find the VTT file (handles special characters in filenames)
-VTT_FILE=$(ls "$TMP_DIR"/*.en.vtt 2>/dev/null | head -1)
+# Function to extract audio and transcribe
+extract_audio_and_transcribe() {
+    local url="$1"
+    local output_file="$2"
+    local chunk_size="$3"
+    local model="$4"
+    
+    echo "Extracting audio from: $url"
+    
+    # Use the extract_youtube_audio tool
+    local audio_file_base=$(basename "$output_file" .txt)
+    local audio_file="${audio_file_base}.mp3"
+    
+    # Get the path to the extract_youtube_audio script
+    local extract_script
+    if [[ -f "$HOME/.dotfiles/bin/extract_youtube_audio" ]]; then
+        extract_script="$HOME/.dotfiles/bin/extract_youtube_audio"
+    elif [[ -f "$(dirname "$0")/extract_youtube_audio" ]]; then
+        extract_script="$(dirname "$0")/extract_youtube_audio"
+    else
+        echo "Error: extract_youtube_audio script not found"
+        return 1
+    fi
+    
+    # Extract audio
+    if ! "$extract_script" "$url" "$audio_file"; then
+        echo "Error: Failed to extract audio"
+        return 1
+    fi
+    
+    # Transcribe using the enhanced transcribe_audio tool
+    local transcribe_script
+    if [[ -f "$HOME/.dotfiles/bin/transcribe_audio" ]]; then
+        transcribe_script="$HOME/.dotfiles/bin/transcribe_audio"
+    elif [[ -f "$(dirname "$0")/transcribe_audio" ]]; then
+        transcribe_script="$(dirname "$0")/transcribe_audio"
+    else
+        echo "Error: transcribe_audio script not found"
+        return 1
+    fi
+    
+    # Build transcribe command
+    local transcribe_cmd=("$transcribe_script" "$audio_file" "$output_file" "--chunk-size=$chunk_size")
+    
+    if [[ -n "$model" ]]; then
+        transcribe_cmd+=("--model=$model")
+    fi
+    
+    # Transcribe the audio
+    if "${transcribe_cmd[@]}"; then
+        echo "Audio transcription completed successfully"
+        # Clean up audio file
+        rm -f "$audio_file"
+        return 0
+    else
+        echo "Audio transcription failed"
+        rm -f "$audio_file"
+        return 1
+    fi
+}
 
-if [ -z "$VTT_FILE" ]; then
-    echo "No subtitle file found. Video may not have subtitles available."
-    exit 1
-fi
+# Main transcription logic
+echo "Processing YouTube video: $URL"
+echo "Method: $METHOD"
 
-# Clean up the VTT file to plain text
-echo "Cleaning transcript..."
-awk '/^WEBVTT/{next} /^$/{next} /^[0-9][0-9]:/{next} /Kind:/{next} /Language:/{next} {gsub(/<[^>]*>/,""); if(length && !seen[$0]++) print}' "$VTT_FILE" > "$OUTPUT"
-
-echo "Transcript saved to: $OUTPUT"
+case "$METHOD" in
+    "subtitles")
+        echo "Using subtitle extraction method"
+        if extract_subtitles "$URL" "$OUTPUT"; then
+            echo "Transcript saved to: $OUTPUT"
+        else
+            echo "Subtitle extraction failed"
+            exit 1
+        fi
+        ;;
+    "audio")
+        echo "Using audio extraction and transcription method"
+        if extract_audio_and_transcribe "$URL" "$OUTPUT" "$CHUNK_SIZE" "$MODEL"; then
+            echo "Transcript saved to: $OUTPUT"
+        else
+            echo "Audio transcription failed"
+            exit 1
+        fi
+        ;;
+    "auto")
+        echo "Using automatic method selection (subtitles first, audio fallback)"
+        
+        # Try subtitles first
+        if extract_subtitles "$URL" "$OUTPUT"; then
+            echo "Subtitle extraction successful"
+            
+            # Check if we should also try audio for comparison
+            echo "Subtitles extracted successfully. You can also try audio transcription for potentially better accuracy:"
+            echo "  $0 '$URL' '${OUTPUT%.txt}.audio.txt' --method=audio --chunk-size=$CHUNK_SIZE"
+            echo "Transcript saved to: $OUTPUT"
+        else
+            echo "Subtitle extraction failed, trying audio transcription..."
+            
+            if extract_audio_and_transcribe "$URL" "$OUTPUT" "$CHUNK_SIZE" "$MODEL"; then
+                echo "Audio transcription successful"
+                echo "Transcript saved to: $OUTPUT"
+            else
+                echo "Both subtitle extraction and audio transcription failed"
+                exit 1
+            fi
+        fi
+        ;;
+    *)
+        echo "Error: Invalid method '$METHOD'. Use 'auto', 'subtitles', or 'audio'"
+        exit 1
+        ;;
+esac
