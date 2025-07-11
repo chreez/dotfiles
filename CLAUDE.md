@@ -60,6 +60,17 @@
   - `~/.dotfiles/bin/transcribe_audio long_file.mp3 --cloud`
   - `~/.dotfiles/bin/transcribe_audio speech.mp3 --model=large-v3-turbo`
 
+### download_song
+- **User says:** "download song [name]" or "get song [title] by [artist]" or "download music [song name]"
+- **Shell command:** `~/.dotfiles/bin/download_song <song_name> [artist_name] [output_directory]`
+- **Auto-installs:** yt-dlp via Homebrew if missing
+- **Features:** YouTube search integration, smart naming, artist preference, directory selection
+- **Output format:** `artist.song.title.mp3` or `song.title.mp3` (without artist)
+- **Examples:**
+  - `~/.dotfiles/bin/download_song "Bohemian Rhapsody" "Queen"`
+  - `~/.dotfiles/bin/download_song "Yesterday" "The Beatles" ~/Music/`
+  - `~/.dotfiles/bin/download_song "Imagine"` (searches without artist)
+
 ## Atomic Tool Style Guidelines
 
 **ALL TOOLS MUST FOLLOW THESE UX PATTERNS:**
