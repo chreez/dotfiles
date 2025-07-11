@@ -196,24 +196,24 @@ case "$METHOD" in
         fi
         ;;
     "auto")
-        echo "Using automatic method selection (subtitles first, audio fallback)"
+        echo "Using automatic method selection (audio first, subtitle fallback)"
         
-        # Try subtitles first
-        if extract_subtitles "$URL" "$OUTPUT"; then
-            echo "Subtitle extraction successful"
-            
-            # Check if we should also try audio for comparison
-            echo "Subtitles extracted successfully. You can also try audio transcription for potentially better accuracy:"
-            echo "  $0 '$URL' '${OUTPUT%.txt}.audio.txt' --method=audio --chunk-size=$CHUNK_SIZE"
+        # Try audio transcription first
+        if extract_audio_and_transcribe "$URL" "$OUTPUT" "$CHUNK_SIZE" "$MODEL"; then
+            echo "Audio transcription successful"
             echo "Transcript saved to: $OUTPUT"
         else
-            echo "Subtitle extraction failed, trying audio transcription..."
+            echo "Audio transcription failed, trying subtitle extraction..."
             
-            if extract_audio_and_transcribe "$URL" "$OUTPUT" "$CHUNK_SIZE" "$MODEL"; then
-                echo "Audio transcription successful"
+            if extract_subtitles "$URL" "$OUTPUT"; then
+                echo "Subtitle extraction successful"
+                
+                # Let user know they got subtitles as fallback
+                echo "Note: Used subtitle extraction as fallback. For potentially better accuracy, you can retry with:"
+                echo "  $0 '$URL' '${OUTPUT%.txt}.audio.txt' --method=audio --chunk-size=$CHUNK_SIZE"
                 echo "Transcript saved to: $OUTPUT"
             else
-                echo "Both subtitle extraction and audio transcription failed"
+                echo "Both audio transcription and subtitle extraction failed"
                 exit 1
             fi
         fi

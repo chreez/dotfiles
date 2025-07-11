@@ -1,0 +1,101 @@
+#!/bin/bash
+
+# download_song - Search and download songs by name and artist from YouTube
+# Usage: ./download_song <song_name> [artist_name] [output_directory]
+# REQUIRES: yt-dlp, mkdir, rm, sed, tr, cut, echo, brew (for auto-install)
+
+# Parse arguments
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <song_name> [artist_name] [output_directory]"
+    echo "Examples:"
+    echo "  $0 'Bohemian Rhapsody' 'Queen'"
+    echo "  $0 'Yesterday' 'The Beatles' ~/Music/"
+    echo "  $0 'Imagine'  # Will search without artist"
+    exit 1
+fi
+
+SONG_NAME="$1"
+ARTIST_NAME="${2:-}"
+OUTPUT_DIR="${3:-.}"
+
+# Validate output directory
+if [ ! -d "$OUTPUT_DIR" ]; then
+    echo "Error: Output directory '$OUTPUT_DIR' does not exist"
+    exit 1
+fi
+
+# Use working directory for temporary files to avoid permission issues
+TMP_DIR="./tmp_download_song_$$"
+mkdir -p "$TMP_DIR"
+trap "rm -rf $TMP_DIR" EXIT
+
+# No need to check for extract_youtube_audio since we're using yt-dlp directly
+
+# Build search query
+if [ -n "$ARTIST_NAME" ]; then
+    SEARCH_QUERY="$ARTIST_NAME $SONG_NAME official audio"
+    echo "🎵 Searching for: $SONG_NAME by $ARTIST_NAME"
+else
+    SEARCH_QUERY="$SONG_NAME official audio music"
+    echo "🎵 Searching for: $SONG_NAME"
+fi
+
+# Function to search YouTube using yt-dlp's search feature
+search_and_download() {
+    local query="$1"
+    local output_file="$2"
+    
+    echo "🔍 Searching YouTube for: $query"
+    
+    # Check if yt-dlp is installed
+    if ! command -v yt-dlp &> /dev/null; then
+        echo "yt-dlp not found. Installing via Homebrew..."
+        brew install yt-dlp
+    fi
+    
+    # Use yt-dlp's search feature to find and download the best match
+    # Search for top result, prefer official audio
+    local search_url="ytsearch1:$query"
+    
+    echo "🎵 Downloading best match..."
+    
+    # Use yt-dlp to search and extract audio directly
+    yt-dlp --extract-audio --audio-format mp3 --audio-quality 0 \
+           --no-playlist \
+           -o "$output_file" \
+           "$search_url" 2>&1 | \
+    awk '/\[download\]/ {print "📥 " $0} /\[ExtractAudio\]/ {print "🎵 " $0}'
+    
+    # Check if download was successful
+    if [ -f "$output_file" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Generate output filename
+if [ -n "$ARTIST_NAME" ]; then
+    # Clean artist and song names for filename
+    CLEAN_ARTIST=$(echo "$ARTIST_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/ /g' | tr -s ' ' | sed 's/^ *//;s/ *$//' | tr ' ' '.' | cut -c1-20)
+    CLEAN_SONG=$(echo "$SONG_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/ /g' | tr -s ' ' | sed 's/^ *//;s/ *$//' | tr ' ' '.' | cut -c1-30)
+    OUTPUT_NAME="${CLEAN_ARTIST}.${CLEAN_SONG}.mp3"
+else
+    CLEAN_SONG=$(echo "$SONG_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/ /g' | tr -s ' ' | sed 's/^ *//;s/ *$//' | tr ' ' '.' | cut -c1-40)
+    OUTPUT_NAME="${CLEAN_SONG}.mp3"
+fi
+
+# Full output path
+OUTPUT_PATH="$OUTPUT_DIR/$OUTPUT_NAME"
+
+# Download the song
+if search_and_download "$SEARCH_QUERY" "$OUTPUT_PATH"; then
+    echo "✅ Successfully downloaded: $OUTPUT_PATH"
+else
+    echo "❌ Download failed"
+    echo "💡 Try:"
+    echo "  - Being more specific with the artist name"
+    echo "  - Checking the song title spelling"
+    echo "  - Adding 'official' or 'audio' to your search"
+    exit 1
+fi
