@@ -24,6 +24,9 @@ curl -fsSL https://raw.githubusercontent.com/chreez/dotfiles/main/install.sh | b
 - `extract_youtube_audio` - Download audio from YouTube videos as MP3
 - `transcribe_audio` - Convert audio files to text (local-first, privacy-focused)
 - `download_song` - Search and download songs by name and artist
+- `spec_validator` - Validate specification files using LLMs (techman integration)
+- `spec_editor` - Create, update, and fork specification files (techman integration)
+- `techman` - Complete specification workflow with AI assistance (techman integration)
 
 ## Adding New Tools
 
