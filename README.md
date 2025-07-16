@@ -18,13 +18,20 @@ curl -fsSL https://raw.githubusercontent.com/chreez/dotfiles/main/install.sh | b
 ## Available Tools
 
 - `transcribe_youtube` - Extract text from YouTube videos
+- `create_tool` - Generate atomic tool templates with permission-minimizing design
+- `network_drive_manager` - Auto-mount SMB shares and manage network files
+- `research_youtube_topic` - Discover and transcribe YouTube videos on topics
+- `extract_youtube_audio` - Download audio from YouTube videos as MP3
+- `transcribe_audio` - Convert audio files to text (local-first, privacy-focused)
+- `download_song` - Search and download songs by name and artist
 
 ## Adding New Tools
 
 1. Add script to `bin/` directory
 2. Make it executable: `chmod +x bin/toolname`
-3. Update `CLAUDE.md` with one-line description
-4. Git commit - no separate changelog needed
+3. Update `CLAUDE.md` with intent mapping and description
+4. **Update this README.md** with new tool in Available Tools section
+5. Git commit - no separate changelog needed
 
 ## Philosophy
 
