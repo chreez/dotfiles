@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# spec_editor - Wrapper for techman spec-editor tool
+# REQUIRES: git, which, curl, jq (for JSON parsing)
+
+# Find techman directory by looking for it in common workspace locations
+TECHMAN_DIR=""
+SEARCH_PATHS=(
+    "$HOME/workspace/techman"
+    "$HOME/projects/techman"
+    "$HOME/dev/techman"
+)
+
+for path in "${SEARCH_PATHS[@]}"; do
+    if [[ -d "$path" && -x "$path/bin/spec-editor" ]]; then
+        TECHMAN_DIR="$path"
+        break
+    fi
+done
+
+if [[ -z "$TECHMAN_DIR" ]]; then
+    echo "Error: techman directory not found. Please ensure techman is installed in one of:" >&2
+    printf "  %s\n" "${SEARCH_PATHS[@]}" >&2
+    exit 1
+fi
+
+# Check for required API keys (only for AI features)
+if [[ "$*" =~ (--ai-assist|--ai-prompt|--test-ai) ]]; then
+    if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${OPENAI_API_KEY:-}" ]]; then
+        echo "Error: Either ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable must be set for AI features" >&2
+        exit 1
+    fi
+fi
+
+# Convert relative paths to absolute paths if needed
+args=()
+for arg in "$@"; do
+    # Skip flags and special arguments
+    if [[ "$arg" == -* ]] || [[ "$arg" == "create" ]] || [[ "$arg" == "update" ]] || [[ "$arg" == "fork" ]]; then
+        args+=("$arg")
+    else
+        # Convert relative paths to absolute paths for .md files
+        if [[ "$arg" == *.md ]]; then
+            if [[ -f "$arg" ]]; then
+                args+=("$(realpath "$arg")")
+            elif [[ -f "$PWD/$arg" ]]; then
+                args+=("$(realpath "$PWD/$arg")")
+            else
+                # For create mode, we might be creating a new file
+                # Check if the directory exists and create absolute path
+                if [[ -d "$(dirname "$arg")" ]]; then
+                    args+=("$(realpath "$(dirname "$arg")")/$(basename "$arg")")
+                else
+                    # Keep the original argument (might be a valid path from techman's perspective)
+                    args+=("$arg")
+                fi
+            fi
+        else
+            # Keep non-markdown arguments as-is (commands, flags, etc.)
+            args+=("$arg")
+        fi
+    fi
+done
+
+# Execute the actual spec-editor with converted paths
+cd "$TECHMAN_DIR" || exit 1
+exec ./bin/spec-editor "${args[@]}"
