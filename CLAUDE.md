@@ -71,44 +71,6 @@
   - `~/.dotfiles/bin/download_song "Yesterday" "The Beatles" ~/Music/`
   - `~/.dotfiles/bin/download_song "Imagine"` (searches without artist)
 
-### spec_validator
-- **User says:** "validate spec [file]" or "check specification" or "test spec file"
-- **Shell command:** `~/.dotfiles/bin/spec_validator [OPTIONS] <spec_file>`
-- **Auto-finds:** techman installation in common workspace locations
-- **Features:** LLM-powered spec validation, JSON output, git diff validation
-- **Path handling:** Works from any directory, converts relative paths to absolute
-- **Requirements:** `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable
-- **Examples:**
-  - `~/.dotfiles/bin/spec_validator specs/example.md`
-  - `~/.dotfiles/bin/spec_validator --json specs/example.md`
-  - `~/.dotfiles/bin/spec_validator --test-llm`
-  - `git diff --cached specs/ | ~/.dotfiles/bin/spec_validator --diff -`
-
-### techman
-- **User says:** "create spec for [feature]" or "techman [description]" or "update spec with AI"
-- **Shell command:** `~/.dotfiles/bin/techman [args]`
-- **Auto-finds:** techman installation in common workspace locations
-- **Features:** Complete spec workflow with AI, validation, and Git integration
-- **Path handling:** Works from any directory, converts relative paths to absolute
-- **Requirements:** `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable
-- **Examples:**
-  - `~/.dotfiles/bin/techman "Spec for user authentication"`
-  - `~/.dotfiles/bin/techman specs/my-spec.md --prompt "add OAuth support"`
-  - `TECHMAN_NO_COMMIT=1 ~/.dotfiles/bin/techman "test spec"`
-
-### spec_editor
-- **User says:** "create spec [name]" or "edit specification" or "update spec file"
-- **Shell command:** `~/.dotfiles/bin/spec_editor <command> [OPTIONS] <spec_file>`
-- **Auto-finds:** techman installation in common workspace locations
-- **Features:** AI-assisted spec creation/editing, versioning, validation integration
-- **Path handling:** Works from any directory, resolves relative paths automatically
-- **Requirements:** `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for AI features only
-- **Commands:** `create`, `update`, `fork`
-- **Examples:**
-  - `~/.dotfiles/bin/spec_editor create --ai-assist auth-spec.md`
-  - `~/.dotfiles/bin/spec_editor update specs/my-spec.md --patch`
-  - `~/.dotfiles/bin/spec_editor fork specs/existing.md new-spec.md --id "new-spec"`
-
 ## Atomic Tool Style Guidelines
 
 **ALL TOOLS MUST FOLLOW THESE UX PATTERNS:**
