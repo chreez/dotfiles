@@ -1,33 +1,87 @@
 #!/bin/bash
 
-# ssh_windows_wsl - SSH to Windows WSL Ubuntu host with auto-discovery and remote startup guidance
-# Usage: ./ssh_windows_wsl [username] [ip_address]
+# ssh_windows_wsl - SSH to Windows WSL Ubuntu host with auto-discovery and remote command execution
+# Usage: ./ssh_windows_wsl [username] [ip_address] [command...]
 # REQUIRES: ssh, ping, ifconfig, route, awk
 
-# Parameter validation
+# Parameter parsing and validation
 USERNAME="${1:-chris}"
-IP_OVERRIDE="$2"
-PRIMARY_HOST="${IP_OVERRIDE:-192.168.1.236}"
+REMOTE_COMMAND=""
+IP_OVERRIDE=""
+PRIMARY_HOST="192.168.1.236"
+
+# Parse arguments based on pattern
+if [[ $# -eq 0 ]]; then
+    # No arguments: default connection
+    :
+elif [[ $# -eq 1 ]]; then
+    # One argument: could be username or command
+    if [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # It's an IP address
+        IP_OVERRIDE="$1"
+        USERNAME="chris"
+        PRIMARY_HOST="$IP_OVERRIDE"
+    elif [[ "$1" == "-" ]]; then
+        # Placeholder for default username
+        USERNAME="chris"
+    else
+        # It's either a username or a command
+        # If it contains spaces or special chars, treat as command
+        if [[ "$1" =~ [[:space:]] || "$1" =~ [\'\"] ]]; then
+            REMOTE_COMMAND="$1"
+        else
+            USERNAME="$1"
+        fi
+    fi
+elif [[ $# -eq 2 ]]; then
+    # Two arguments: username + IP, username + command, or IP + command
+    if [[ "$2" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # Second arg is IP
+        USERNAME="$1"
+        IP_OVERRIDE="$2"
+        PRIMARY_HOST="$IP_OVERRIDE"
+    else
+        # Second arg is command
+        USERNAME="$1"
+        REMOTE_COMMAND="$2"
+    fi
+else
+    # Three or more arguments: username, IP, and command
+    USERNAME="$1"
+    IP_OVERRIDE="$2"
+    PRIMARY_HOST="$IP_OVERRIDE"
+    shift 2
+    REMOTE_COMMAND="$*"
+fi
+
+# Handle special case of "-" for default username
+if [[ "$USERNAME" == "-" ]]; then
+    USERNAME="chris"
+fi
 SSH_PORT="22"
 CONNECT_TIMEOUT="5"
 
 # Show usage if help requested
 if [[ "$1" == "-h" || "$1" == "--help" ]]; then
-    echo "Usage: $0 [username] [ip_address]"
+    echo "Usage: $0 [username] [ip_address] [command...]"
     echo "  username    - SSH username (default: chris)"
     echo "  ip_address  - Override default IP 192.168.1.236"
-    echo "Examples:"
+    echo "  command     - Command to execute remotely (optional)"
+    echo ""
+    echo "Interactive Connection Examples:"
     echo "  $0                    # Connect as chris@192.168.1.236"
     echo "  $0 admin              # Connect as admin@192.168.1.236"
     echo "  $0 chris 192.168.1.100 # Connect as chris@192.168.1.100"
     echo "  $0 - 192.168.1.100    # Connect as chris@192.168.1.100 (use - for default username)"
+    echo ""
+    echo "Remote Command Examples:"
+    echo "  $0 chris \"ls -la\"      # Run 'ls -la' on default host"
+    echo "  $0 chris 192.168.1.100 \"uptime\"  # Run 'uptime' on specific host"
+    echo "  $0 - 192.168.1.100 \"pwd\"         # Run 'pwd' as default user on specific host"
+    echo "  $0 \"docker ps\"         # Run 'docker ps' as default user on default host"
     exit 0
 fi
 
-# Handle username placeholder for IP override
-if [[ "$1" == "-" ]]; then
-    USERNAME="chris"
-fi
 
 # Use working directory for temporary files to avoid permission issues
 TMP_DIR="./tmp_ssh_windows_wsl_$$"
@@ -140,9 +194,15 @@ show_remote_startup_help() {
 connect_ssh() {
     local host="$1"
     local user="$2"
+    local command="$3"
     
-    echo "🚀 Connecting to $user@$host..."
-    ssh "$user@$host"
+    if [[ -n "$command" ]]; then
+        echo "🚀 Executing command on $user@$host: $command"
+        ssh "$user@$host" "$command"
+    else
+        echo "🚀 Connecting to $user@$host..."
+        ssh "$user@$host"
+    fi
 }
 
 # Main execution flow
@@ -160,7 +220,7 @@ fi
 echo
 echo "📍 Step 1: Trying primary host $USERNAME@$PRIMARY_HOST"
 if test_ssh_connection "$PRIMARY_HOST" "$USERNAME"; then
-    connect_ssh "$PRIMARY_HOST" "$USERNAME"
+    connect_ssh "$PRIMARY_HOST" "$USERNAME" "$REMOTE_COMMAND"
     exit 0
 fi
 
@@ -179,11 +239,18 @@ if scan_for_ssh "$NETWORK_BASE"; then
     while IFS= read -r host; do
         if test_ssh_connection "$host" "$USERNAME"; then
             echo
-            read -p "🤔 Connect to $USERNAME@$host? [y/N]: " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                connect_ssh "$host" "$USERNAME"
+            if [[ -n "$REMOTE_COMMAND" ]]; then
+                # For remote commands, auto-connect to first working host
+                connect_ssh "$host" "$USERNAME" "$REMOTE_COMMAND"
                 exit 0
+            else
+                # For interactive sessions, ask for confirmation
+                read -p "🤔 Connect to $USERNAME@$host? [y/N]: " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Yy]$ ]]; then
+                    connect_ssh "$host" "$USERNAME" "$REMOTE_COMMAND"
+                    exit 0
+                fi
             fi
         fi
     done < "$SSH_HOSTS_FILE"

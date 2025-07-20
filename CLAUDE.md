@@ -21,16 +21,19 @@
 - **Features:** Built-in design rules, automated reminders
 
 ### ssh_windows_wsl
-- **User says:** "connect to windows" or "ssh to wsl" or "access windows host" or "ssh windows"
-- **Shell command:** `~/.dotfiles/bin/ssh_windows_wsl [username] [ip_address]`
+- **User says:** "connect to windows" or "ssh to wsl" or "access windows host" or "ssh windows" or "run command on windows"
+- **Shell command:** `~/.dotfiles/bin/ssh_windows_wsl [username] [ip_address] [command...]`
 - **Auto-discovery:** Scans network subnet if primary IP (192.168.1.236) fails
-- **Features:** Network scanning, Chrome Remote Desktop startup instructions, fallback guidance, IP override
+- **Features:** Network scanning, Chrome Remote Desktop startup instructions, fallback guidance, IP override, remote command execution
 - **Handles:** IP changes, WSL not running, computer offline scenarios
 - **Examples:**
   - `~/.dotfiles/bin/ssh_windows_wsl` (connects as 'chris@192.168.1.236')
   - `~/.dotfiles/bin/ssh_windows_wsl admin` (connects as 'admin@192.168.1.236')
   - `~/.dotfiles/bin/ssh_windows_wsl chris 192.168.1.100` (connects to custom IP)
   - `~/.dotfiles/bin/ssh_windows_wsl - 192.168.1.100` (default user, custom IP)
+  - `~/.dotfiles/bin/ssh_windows_wsl "docker ps"` (run command as default user on default host)
+  - `~/.dotfiles/bin/ssh_windows_wsl chris "ls -la"` (run command as specific user)
+  - `~/.dotfiles/bin/ssh_windows_wsl chris 192.168.1.100 "uptime"` (run command on specific host)
 
 ### network_drive_manager
 - **User says:** "open latest 10 files in rated" or "list network files" or "open network drive movies2"
