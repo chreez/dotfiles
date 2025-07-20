@@ -20,6 +20,16 @@
 - **Creates:** Permission-minimized shell script template
 - **Features:** Built-in design rules, automated reminders
 
+### ssh_windows_wsl
+- **User says:** "connect to windows" or "ssh to wsl" or "access windows host" or "ssh windows"
+- **Shell command:** `~/.dotfiles/bin/ssh_windows_wsl [username]`
+- **Auto-discovery:** Scans network subnet if primary IP (192.168.1.236) fails
+- **Features:** Network scanning, Chrome Remote Desktop startup instructions, fallback guidance
+- **Handles:** IP changes, WSL not running, computer offline scenarios
+- **Examples:**
+  - `~/.dotfiles/bin/ssh_windows_wsl` (connects as 'chris')
+  - `~/.dotfiles/bin/ssh_windows_wsl admin` (connects as 'admin')
+
 ### network_drive_manager
 - **User says:** "open latest 10 files in rated" or "list network files" or "open network drive movies2"
 - **Shell command:** `~/.dotfiles/bin/network_drive_manager <command> [args]`

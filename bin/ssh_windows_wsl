@@ -1,0 +1,173 @@
+#!/bin/bash
+
+# ssh_windows_wsl - SSH to Windows WSL Ubuntu host with auto-discovery and remote startup guidance
+# Usage: ./ssh_windows_wsl [username]
+# REQUIRES: ssh, ping, ifconfig, route, awk
+
+# Parameter validation
+USERNAME="${1:-chris}"
+PRIMARY_HOST="192.168.1.236"
+SSH_PORT="22"
+CONNECT_TIMEOUT="5"
+
+# Use working directory for temporary files to avoid permission issues
+TMP_DIR="./tmp_ssh_windows_wsl_$$"
+mkdir -p "$TMP_DIR"
+trap "rm -rf $TMP_DIR" EXIT
+
+# Check SSH availability
+if ! command -v ssh &> /dev/null; then
+    echo "❌ SSH not found. Please install SSH client."
+    exit 1
+fi
+
+# Function to test SSH connection
+test_ssh_connection() {
+    local host="$1"
+    local user="$2"
+    echo "🔍 Testing SSH connection to $user@$host..."
+    
+    if ssh -o ConnectTimeout="$CONNECT_TIMEOUT" -o BatchMode=yes -o StrictHostKeyChecking=no "$user@$host" "echo 'SSH OK'" 2>/dev/null; then
+        echo "✅ SSH connection successful to $user@$host"
+        return 0
+    else
+        echo "❌ SSH connection failed to $user@$host"
+        return 1
+    fi
+}
+
+# Function to get current network info
+get_network_info() {
+    # Get current IP and subnet
+    CURRENT_IP=$(ifconfig | awk '/inet / && !/127.0.0.1/ {print $2; exit}')
+    if [ -z "$CURRENT_IP" ]; then
+        echo "❌ Could not determine current IP address"
+        return 1
+    fi
+    
+    # Extract network base (assumes /24 subnet)
+    NETWORK_BASE=$(echo "$CURRENT_IP" | awk -F. '{print $1"."$2"."$3}')
+    echo "📡 Current network: $NETWORK_BASE.0/24 (your IP: $CURRENT_IP)"
+}
+
+# Function to scan network for SSH services
+scan_for_ssh() {
+    local network_base="$1"
+    echo "🔍 Scanning $network_base.0/24 for SSH services..."
+    
+    # Create results file
+    SSH_HOSTS_FILE="$TMP_DIR/ssh_hosts.txt"
+    > "$SSH_HOSTS_FILE"
+    
+    # Scan common host IPs first (faster)
+    for ip in 236 1 10 100 200 250; do
+        host="$network_base.$ip"
+        if ping -c 1 -W 1000 "$host" &>/dev/null; then
+            if nc -z -w 2 "$host" "$SSH_PORT" 2>/dev/null; then
+                echo "$host" >> "$SSH_HOSTS_FILE"
+                echo "  ✅ Found SSH service at $host"
+            fi
+        fi
+    done
+    
+    # If no SSH hosts found, do broader scan
+    if [ ! -s "$SSH_HOSTS_FILE" ]; then
+        echo "🔍 No SSH found in common IPs, scanning full subnet..."
+        for i in {1..254}; do
+            host="$network_base.$i"
+            if ping -c 1 -W 500 "$host" &>/dev/null; then
+                if nc -z -w 1 "$host" "$SSH_PORT" 2>/dev/null; then
+                    echo "$host" >> "$SSH_HOSTS_FILE"
+                    echo "  ✅ Found SSH service at $host"
+                fi
+            fi
+        done
+    fi
+    
+    if [ -s "$SSH_HOSTS_FILE" ]; then
+        echo "📋 SSH hosts found:"
+        cat "$SSH_HOSTS_FILE"
+        return 0
+    else
+        echo "❌ No SSH services found on network"
+        return 1
+    fi
+}
+
+# Function to show remote startup instructions
+show_remote_startup_help() {
+    echo
+    echo "🖥️  REMOTE STARTUP INSTRUCTIONS"
+    echo "==============================="
+    echo
+    echo "If the Windows host is down or WSL is not running:"
+    echo
+    echo "1. 📱 Open Chrome Remote Desktop on your phone"
+    echo "2. 🖱️  Connect to DESKTOP-488UA5S (should show as Online)"
+    echo "3. 🪟 Once connected to Windows desktop:"
+    echo "   • Open Windows Terminal or PowerShell"
+    echo "   • Run: wsl"
+    echo "   • Or run: ubuntu (if Ubuntu is installed)"
+    echo "4. 🌐 Check the new IP address with: ip addr show"
+    echo "5. 🔄 Run this tool again to retry connection"
+    echo
+    echo "Alternative: Start from Windows:"
+    echo "• Windows Key + R → cmd → wsl"
+    echo "• Or search 'Ubuntu' in Start Menu"
+    echo
+}
+
+# Function to connect via SSH with fallback options
+connect_ssh() {
+    local host="$1"
+    local user="$2"
+    
+    echo "🚀 Connecting to $user@$host..."
+    ssh "$user@$host"
+}
+
+# Main execution flow
+echo "🔐 SSH Windows WSL Connection Tool"
+echo "=================================="
+
+# Step 1: Try primary host
+echo
+echo "📍 Step 1: Trying primary host $USERNAME@$PRIMARY_HOST"
+if test_ssh_connection "$PRIMARY_HOST" "$USERNAME"; then
+    connect_ssh "$PRIMARY_HOST" "$USERNAME"
+    exit 0
+fi
+
+# Step 2: Get network info and scan for alternatives
+echo
+echo "📍 Step 2: Primary host failed, scanning network for alternatives"
+if ! get_network_info; then
+    show_remote_startup_help
+    exit 1
+fi
+
+if scan_for_ssh "$NETWORK_BASE"; then
+    echo
+    echo "🎯 Found SSH hosts. Testing connections..."
+    
+    while IFS= read -r host; do
+        if test_ssh_connection "$host" "$USERNAME"; then
+            echo
+            read -p "🤔 Connect to $USERNAME@$host? [y/N]: " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                connect_ssh "$host" "$USERNAME"
+                exit 0
+            fi
+        fi
+    done < "$SSH_HOSTS_FILE"
+fi
+
+# Step 3: Show remote startup help
+echo
+echo "📍 Step 3: No SSH connections available"
+show_remote_startup_help
+
+echo
+echo "💡 Tip: The IP address might have changed, or the WSL instance might not be running."
+echo "💡 Use Chrome Remote Desktop to start the Windows machine and WSL Ubuntu."
