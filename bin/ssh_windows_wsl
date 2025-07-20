@@ -1,14 +1,33 @@
 #!/bin/bash
 
 # ssh_windows_wsl - SSH to Windows WSL Ubuntu host with auto-discovery and remote startup guidance
-# Usage: ./ssh_windows_wsl [username]
+# Usage: ./ssh_windows_wsl [username] [ip_address]
 # REQUIRES: ssh, ping, ifconfig, route, awk
 
 # Parameter validation
 USERNAME="${1:-chris}"
-PRIMARY_HOST="192.168.1.236"
+IP_OVERRIDE="$2"
+PRIMARY_HOST="${IP_OVERRIDE:-192.168.1.236}"
 SSH_PORT="22"
 CONNECT_TIMEOUT="5"
+
+# Show usage if help requested
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    echo "Usage: $0 [username] [ip_address]"
+    echo "  username    - SSH username (default: chris)"
+    echo "  ip_address  - Override default IP 192.168.1.236"
+    echo "Examples:"
+    echo "  $0                    # Connect as chris@192.168.1.236"
+    echo "  $0 admin              # Connect as admin@192.168.1.236"
+    echo "  $0 chris 192.168.1.100 # Connect as chris@192.168.1.100"
+    echo "  $0 - 192.168.1.100    # Connect as chris@192.168.1.100 (use - for default username)"
+    exit 0
+fi
+
+# Handle username placeholder for IP override
+if [[ "$1" == "-" ]]; then
+    USERNAME="chris"
+fi
 
 # Use working directory for temporary files to avoid permission issues
 TMP_DIR="./tmp_ssh_windows_wsl_$$"
@@ -129,6 +148,13 @@ connect_ssh() {
 # Main execution flow
 echo "🔐 SSH Windows WSL Connection Tool"
 echo "=================================="
+
+# Show connection details
+if [[ -n "$IP_OVERRIDE" ]]; then
+    echo "🎯 Using IP override: $PRIMARY_HOST"
+else
+    echo "🎯 Using default IP: $PRIMARY_HOST"
+fi
 
 # Step 1: Try primary host
 echo
