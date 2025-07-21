@@ -1,86 +1,66 @@
 #!/bin/bash
 
 # ssh_windows_wsl - SSH to Windows WSL Ubuntu host with auto-discovery and remote command execution
-# Usage: ./ssh_windows_wsl [username] [ip_address] [command...]
+# 
+# FRONTMATTER:
+# - Always connects as user 'chris'
+# - Auto-discovers WSL host if primary IP fails
+# - Supports remote command execution via --command flag
+# - Provides Chrome Remote Desktop startup guidance
+# 
+# Usage: ./ssh_windows_wsl [--command "cmd"] [--ip IP_ADDRESS] [--help]
 # REQUIRES: ssh, ping, ifconfig, route, awk
 
 # Parameter parsing and validation
-USERNAME="${1:-chris}"
+USERNAME="chris"
 REMOTE_COMMAND=""
 IP_OVERRIDE=""
 PRIMARY_HOST="192.168.1.236"
 
-# Parse arguments based on pattern
-if [[ $# -eq 0 ]]; then
-    # No arguments: default connection
-    :
-elif [[ $# -eq 1 ]]; then
-    # One argument: could be username or command
-    if [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        # It's an IP address
-        IP_OVERRIDE="$1"
-        USERNAME="chris"
-        PRIMARY_HOST="$IP_OVERRIDE"
-    elif [[ "$1" == "-" ]]; then
-        # Placeholder for default username
-        USERNAME="chris"
-    else
-        # It's either a username or a command
-        # If it contains spaces or special chars, treat as command
-        if [[ "$1" =~ [[:space:]] || "$1" =~ [\'\"] ]]; then
-            REMOTE_COMMAND="$1"
-        else
-            USERNAME="$1"
-        fi
-    fi
-elif [[ $# -eq 2 ]]; then
-    # Two arguments: username + IP, username + command, or IP + command
-    if [[ "$2" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        # Second arg is IP
-        USERNAME="$1"
-        IP_OVERRIDE="$2"
-        PRIMARY_HOST="$IP_OVERRIDE"
-    else
-        # Second arg is command
-        USERNAME="$1"
-        REMOTE_COMMAND="$2"
-    fi
-else
-    # Three or more arguments: username, IP, and command
-    USERNAME="$1"
-    IP_OVERRIDE="$2"
-    PRIMARY_HOST="$IP_OVERRIDE"
-    shift 2
-    REMOTE_COMMAND="$*"
-fi
-
-# Handle special case of "-" for default username
-if [[ "$USERNAME" == "-" ]]; then
-    USERNAME="chris"
-fi
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --command|-c)
+            REMOTE_COMMAND="$2"
+            shift 2
+            ;;
+        --ip|-i)
+            IP_OVERRIDE="$2"
+            PRIMARY_HOST="$IP_OVERRIDE"
+            shift 2
+            ;;
+        --help|-h)
+            echo "Usage: $0 [--command \"cmd\"] [--ip IP_ADDRESS] [--help]"
+            echo ""
+            echo "Options:"
+            echo "  --command, -c    Command to execute remotely"
+            echo "  --ip, -i         Override default IP (192.168.1.236)"
+            echo "  --help, -h       Show this help message"
+            echo ""
+            echo "Always connects as user 'chris'."
+            echo ""
+            echo "Interactive Connection Examples:"
+            echo "  $0                           # Connect to chris@192.168.1.236"
+            echo "  $0 --ip 192.168.1.100       # Connect to chris@192.168.1.100"
+            echo ""
+            echo "Remote Command Examples:"
+            echo "  $0 --command \"ls -la\"        # Run 'ls -la' on default host"
+            echo "  $0 --ip 192.168.1.100 --command \"uptime\"  # Run 'uptime' on specific host"
+            echo "  $0 -c \"docker ps\"           # Run 'docker ps' on default host"
+            echo "  $0 -i 192.168.1.100 -c \"systemctl status docker\"  # Multi-word command"
+            echo ""
+            echo "Note: Commands with spaces should be quoted."
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information."
+            exit 1
+            ;;
+    esac
+done
 SSH_PORT="22"
 CONNECT_TIMEOUT="5"
-
-# Show usage if help requested
-if [[ "$1" == "-h" || "$1" == "--help" ]]; then
-    echo "Usage: $0 [username] [ip_address] [command...]"
-    echo "  username    - SSH username (default: chris)"
-    echo "  ip_address  - Override default IP 192.168.1.236"
-    echo "  command     - Command to execute remotely (optional)"
-    echo ""
-    echo "Interactive Connection Examples:"
-    echo "  $0                    # Connect as chris@192.168.1.236"
-    echo "  $0 admin              # Connect as admin@192.168.1.236"
-    echo "  $0 chris 192.168.1.100 # Connect as chris@192.168.1.100"
-    echo "  $0 - 192.168.1.100    # Connect as chris@192.168.1.100 (use - for default username)"
-    echo ""
-    echo "Remote Command Examples:"
-    echo "  $0 chris \"ls -la\"      # Run 'ls -la' on default host"
-    echo "  $0 chris 192.168.1.100 \"uptime\"  # Run 'uptime' on specific host"
-    echo "  $0 - 192.168.1.100 \"pwd\"         # Run 'pwd' as default user on specific host"
-    echo "  $0 \"docker ps\"         # Run 'docker ps' as default user on default host"
-    exit 0
-fi
 
 
 # Use working directory for temporary files to avoid permission issues
@@ -214,6 +194,10 @@ if [[ -n "$IP_OVERRIDE" ]]; then
     echo "🎯 Using IP override: $PRIMARY_HOST"
 else
     echo "🎯 Using default IP: $PRIMARY_HOST"
+fi
+
+if [[ -n "$REMOTE_COMMAND" ]]; then
+    echo "🚀 Command to execute: $REMOTE_COMMAND"
 fi
 
 # Step 1: Try primary host
