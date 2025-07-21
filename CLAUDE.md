@@ -20,6 +20,22 @@
 - **Creates:** Permission-minimized shell script template
 - **Features:** Built-in design rules, automated reminders
 
+### initClaude
+- **User says:** "initialize claude project" or "create new workspace" or "start new project [name]" or "new workspace for [description]"
+- **Shell command:** `~/.dotfiles/bin/initClaude [input] [--no-launch] [--file filename]`
+- **Creates:** Project directories in ~/workspace/ with consistent dot-notation naming
+- **Features:** AI-powered name generation, git initialization, template files, auto-launch Claude Code
+- **Three input modes:** Natural language (AI suggests name), dot-notation (keeps as-is), direct name (converts to dots)
+- **Auto-installs:** None (requires git, curl for AI APIs, claude-code CLI)
+- **Examples:**
+  - `~/.dotfiles/bin/initClaude` (creates scratch-YYYYMMDD workspace)
+  - `~/.dotfiles/bin/initClaude "tool for parsing markdown files"` (AI suggests: markdown.parser)
+  - `~/.dotfiles/bin/initClaude ml.parser` (creates ml.parser directory)
+  - `~/.dotfiles/bin/initClaude data-viz` (converts to data.viz)
+  - `~/.dotfiles/bin/initClaude --no-launch test.project` (create without launching Claude)
+  - `echo "RSS feed aggregator" | ~/.dotfiles/bin/initClaude` (piped input)
+  - `~/.dotfiles/bin/initClaude --file project-idea.txt` (file input)
+
 ### ssh_windows_wsl
 - **User says:** "connect to windows" or "ssh to wsl" or "access windows host" or "ssh windows" or "run command on windows"
 - **Shell command:** `~/.dotfiles/bin/ssh_windows_wsl [--command "cmd"] [--ip IP_ADDRESS]`
