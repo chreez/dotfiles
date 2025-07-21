@@ -19,6 +19,8 @@ curl -fsSL https://raw.githubusercontent.com/chreez/dotfiles/main/install.sh | b
 
 - `transcribe_youtube` - Extract text from YouTube videos
 - `create_tool` - Generate atomic tool templates with permission-minimizing design
+- `ssh_windows_wsl` - SSH to Windows WSL with auto-discovery and remote command execution
+- `sync_windows_wsl` - Bidirectional file sync with Windows WSL (E: drive, home, temp only)
 - `network_drive_manager` - Auto-mount SMB shares and manage network files
 - `research_youtube_topic` - Discover and transcribe YouTube videos on topics
 - `extract_youtube_audio` - Download audio from YouTube videos as MP3

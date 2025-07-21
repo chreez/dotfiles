@@ -22,18 +22,32 @@
 
 ### ssh_windows_wsl
 - **User says:** "connect to windows" or "ssh to wsl" or "access windows host" or "ssh windows" or "run command on windows"
-- **Shell command:** `~/.dotfiles/bin/ssh_windows_wsl [username] [ip_address] [command...]`
+- **Shell command:** `~/.dotfiles/bin/ssh_windows_wsl [--command "cmd"] [--ip IP_ADDRESS]`
+- **Always connects as user 'chris'** - no username parameter needed
 - **Auto-discovery:** Scans network subnet if primary IP (192.168.1.236) fails
-- **Features:** Network scanning, Chrome Remote Desktop startup instructions, fallback guidance, IP override, remote command execution
+- **Features:** Network scanning, Chrome Remote Desktop startup instructions, fallback guidance, IP override, remote command execution via --command flag
 - **Handles:** IP changes, WSL not running, computer offline scenarios
 - **Examples:**
-  - `~/.dotfiles/bin/ssh_windows_wsl` (connects as 'chris@192.168.1.236')
-  - `~/.dotfiles/bin/ssh_windows_wsl admin` (connects as 'admin@192.168.1.236')
-  - `~/.dotfiles/bin/ssh_windows_wsl chris 192.168.1.100` (connects to custom IP)
-  - `~/.dotfiles/bin/ssh_windows_wsl - 192.168.1.100` (default user, custom IP)
-  - `~/.dotfiles/bin/ssh_windows_wsl "docker ps"` (run command as default user on default host)
-  - `~/.dotfiles/bin/ssh_windows_wsl chris "ls -la"` (run command as specific user)
-  - `~/.dotfiles/bin/ssh_windows_wsl chris 192.168.1.100 "uptime"` (run command on specific host)
+  - `~/.dotfiles/bin/ssh_windows_wsl` (connects to chris@192.168.1.236)
+  - `~/.dotfiles/bin/ssh_windows_wsl --ip 192.168.1.100` (connects to chris@192.168.1.100)
+  - `~/.dotfiles/bin/ssh_windows_wsl --command "docker ps"` (run command on default host)
+  - `~/.dotfiles/bin/ssh_windows_wsl --command "ls -la"` (run command on default host)
+  - `~/.dotfiles/bin/ssh_windows_wsl --ip 192.168.1.100 --command "uptime"` (run command on specific host)
+  - `~/.dotfiles/bin/ssh_windows_wsl -c "systemctl status docker"` (short flag form)
+  - `~/.dotfiles/bin/ssh_windows_wsl -i 192.168.1.100 -c "pwd"` (short flags combined)
+
+### sync_windows_wsl
+- **User says:** "sync files to windows" or "copy to wsl" or "upload to E drive" or "download from windows" or "rsync to remote"
+- **Shell command:** `~/.dotfiles/bin/sync_windows_wsl [--to|--from] <path> [remote_path] [username] [ip_address]`
+- **Safety restrictions:** Only allows E: drive (/mnt/e/), home directories (/home/), and temp (/tmp/) on remote
+- **Features:** Bidirectional sync, safety validation, SSH connection testing, automatic directory creation
+- **Auto-installs:** None (requires rsync, ssh, standard utilities)
+- **Examples:**
+  - `~/.dotfiles/bin/sync_windows_wsl ./myfile.txt` (copy to E:/myfile.txt)
+  - `~/.dotfiles/bin/sync_windows_wsl ./docs/ /mnt/e/backup/` (sync directory to E:/backup/)
+  - `~/.dotfiles/bin/sync_windows_wsl --from /mnt/e/data.txt ./` (download from E: drive)
+  - `~/.dotfiles/bin/sync_windows_wsl ./project/ /home/chris/work/` (sync to home directory)
+  - `~/.dotfiles/bin/sync_windows_wsl ./file.txt /mnt/e/ admin 192.168.1.100` (custom user/IP)
 
 ### network_drive_manager
 - **User says:** "open latest 10 files in rated" or "list network files" or "open network drive movies2"
@@ -228,3 +242,7 @@
    - Test tools in fresh environments to catch permission issues
    - Document exact command list needed for global permissions
    - Prefer tools that work with minimal system access
+
+## Memories and Best Practices
+
+- **Tool Testing:** Make sure to clean up tmp files when testing tools before committing
