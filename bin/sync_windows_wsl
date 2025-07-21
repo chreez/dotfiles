@@ -1,0 +1,214 @@
+#!/bin/bash
+
+# sync_windows_wsl - Rsync/SCP files to Windows WSL with F: drive safety restrictions
+# Usage: ./sync_windows_wsl <local_path> [remote_path] [username] [ip_address]
+#        ./sync_windows_wsl --from <remote_path> [local_path] [username] [ip_address]
+# REQUIRES: rsync, ssh, realpath, basename, dirname
+
+# Safety restrictions: Only allow E: drive (/mnt/e/) and local mount points on remote
+ALLOWED_REMOTE_PREFIXES=(
+    "/mnt/e/"
+    "/home/"
+    "/tmp/"
+)
+
+# Parameter validation and parsing
+DIRECTION="to"  # Default: sync TO remote
+LOCAL_PATH=""
+REMOTE_PATH=""
+USERNAME="chris"
+IP_ADDRESS="192.168.1.236"
+
+# Parse direction flag
+if [[ "$1" == "--from" ]]; then
+    DIRECTION="from"
+    shift
+elif [[ "$1" == "--to" ]]; then
+    DIRECTION="to"
+    shift
+fi
+
+# Show usage if help requested
+if [[ "$1" == "-h" || "$1" == "--help" || $# -eq 0 ]]; then
+    echo "Usage: $0 [--to|--from] <path> [remote_path] [username] [ip_address]"
+    echo ""
+    echo "Sync files to/from Windows WSL with safety restrictions"
+    echo ""
+    echo "Direction:"
+    echo "  --to      Sync local files TO remote (default)"
+    echo "  --from    Sync files FROM remote to local"
+    echo ""
+    echo "Parameters:"
+    echo "  path         Local path (for --to) or remote path (for --from)"
+    echo "  remote_path  Destination path (optional, defaults to E: drive)"
+    echo "  username     SSH username (default: chris)"
+    echo "  ip_address   Remote host IP (default: 192.168.1.236)"
+    echo ""
+    echo "Safety: Remote paths restricted to:"
+    echo "  - /mnt/e/ (E: drive)"
+    echo "  - /home/ (user directories)"
+    echo "  - /tmp/ (temporary files)"
+    echo ""
+    echo "Examples:"
+    echo "  $0 ./myfile.txt                    # Copy to E:/myfile.txt"
+    echo "  $0 ./docs/ /mnt/e/backup/           # Sync docs to E:/backup/"
+    echo "  $0 --from /mnt/e/data.txt ./        # Copy from E: to local"
+    echo "  $0 ./project/ /home/chris/work/     # Sync to home directory"
+    echo "  $0 ./file.txt /mnt/e/ admin 192.168.1.100  # Custom user/IP"
+    exit 0
+fi
+
+# Parse arguments based on direction
+if [[ "$DIRECTION" == "to" ]]; then
+    LOCAL_PATH="$1"
+    REMOTE_PATH="${2:-/mnt/e/$(basename "$LOCAL_PATH")}"
+    USERNAME="${3:-chris}"
+    IP_ADDRESS="${4:-192.168.1.236}"
+else
+    REMOTE_PATH="$1"
+    LOCAL_PATH="${2:-./$(basename "$REMOTE_PATH")}"
+    USERNAME="${3:-chris}"
+    IP_ADDRESS="${4:-192.168.1.236}"
+fi
+
+# Validate required parameters
+if [[ -z "$LOCAL_PATH" || -z "$REMOTE_PATH" ]]; then
+    echo "❌ Error: Both local and remote paths are required"
+    exit 1
+fi
+
+# Use working directory for temporary files to avoid permission issues
+TMP_DIR="./tmp_sync_windows_wsl_$$"
+mkdir -p "$TMP_DIR"
+trap "rm -rf $TMP_DIR" EXIT
+
+# Check dependencies
+for cmd in rsync ssh realpath basename dirname; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "❌ Error: $cmd not found. Please install required tools."
+        exit 1
+    fi
+done
+
+# Function to validate remote path safety
+validate_remote_path() {
+    local path="$1"
+    local allowed=false
+    
+    # Check if path starts with any allowed prefix
+    for prefix in "${ALLOWED_REMOTE_PREFIXES[@]}"; do
+        if [[ "$path" == $prefix* ]]; then
+            allowed=true
+            break
+        fi
+    done
+    
+    if [[ "$allowed" == "false" ]]; then
+        echo "❌ Error: Remote path '$path' not allowed"
+        echo "📋 Allowed prefixes:"
+        printf "   - %s\n" "${ALLOWED_REMOTE_PREFIXES[@]}"
+        exit 1
+    fi
+}
+
+# Function to test SSH connection
+test_ssh_connection() {
+    local host="$1"
+    local user="$2"
+    echo "🔍 Testing SSH connection to $user@$host..."
+    
+    if ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$user@$host" "echo 'SSH OK'" 2>/dev/null; then
+        echo "✅ SSH connection successful"
+        return 0
+    else
+        echo "❌ SSH connection failed to $user@$host"
+        echo "💡 Run: ~/.dotfiles/bin/ssh_windows_wsl to troubleshoot connection"
+        return 1
+    fi
+}
+
+# Function to perform rsync
+perform_sync() {
+    local direction="$1"
+    local local_path="$2"
+    local remote_path="$3"
+    local username="$4"
+    local ip_address="$5"
+    
+    local rsync_opts="-avz --progress"
+    local source=""
+    local destination=""
+    
+    if [[ "$direction" == "to" ]]; then
+        # Validate local path exists
+        if [[ ! -e "$local_path" ]]; then
+            echo "❌ Error: Local path '$local_path' does not exist"
+            exit 1
+        fi
+        
+        # Validate remote path safety
+        validate_remote_path "$remote_path"
+        
+        source="$local_path"
+        destination="$username@$ip_address:$remote_path"
+        
+        echo "📤 Syncing TO remote: $local_path → $username@$ip_address:$remote_path"
+        
+        # Create remote directory if it doesn't exist (for directories)
+        if [[ -d "$local_path" ]]; then
+            ssh "$username@$ip_address" "mkdir -p '$remote_path'" 2>/dev/null || true
+        else
+            # For files, ensure the parent directory exists
+            remote_dir=$(dirname "$remote_path")
+            ssh "$username@$ip_address" "mkdir -p '$remote_dir'" 2>/dev/null || true
+        fi
+        
+    else
+        # FROM remote
+        validate_remote_path "$remote_path"
+        
+        source="$username@$ip_address:$remote_path"
+        destination="$local_path"
+        
+        echo "📥 Syncing FROM remote: $username@$ip_address:$remote_path → $local_path"
+        
+        # Create local directory if needed
+        if [[ "$local_path" == */ || -d "$local_path" ]]; then
+            mkdir -p "$local_path"
+        else
+            # For files, ensure the parent directory exists
+            local_dir=$(dirname "$local_path")
+            mkdir -p "$local_dir"
+        fi
+    fi
+    
+    # Perform the sync
+    echo "🚀 Starting rsync transfer..."
+    if rsync $rsync_opts "$source" "$destination"; then
+        echo "✅ Sync completed successfully!"
+        return 0
+    else
+        echo "❌ Sync failed"
+        return 1
+    fi
+}
+
+# Main execution
+echo "🔄 WSL File Sync Tool"
+echo "===================="
+
+# Validate paths and show summary
+echo "📋 Sync Summary:"
+echo "   Direction: $DIRECTION"
+echo "   Local:     $LOCAL_PATH"
+echo "   Remote:    $REMOTE_PATH"
+echo "   User:      $USERNAME@$IP_ADDRESS"
+echo
+
+# Test SSH connection first
+if ! test_ssh_connection "$IP_ADDRESS" "$USERNAME"; then
+    exit 1
+fi
+
+# Perform the sync
+perform_sync "$DIRECTION" "$LOCAL_PATH" "$REMOTE_PATH" "$USERNAME" "$IP_ADDRESS"
