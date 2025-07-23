@@ -1,16 +1,12 @@
 #!/bin/bash
 
-# sync_windows_wsl - Rsync/SCP files to Windows WSL with F: drive safety restrictions
+# sync_windows_wsl - Rsync/SCP files to Windows WSL with configurable safety
 # Usage: ./sync_windows_wsl <local_path> [remote_path] [username] [ip_address]
 #        ./sync_windows_wsl --from <remote_path> [local_path] [username] [ip_address]
 # REQUIRES: rsync, ssh, realpath, basename, dirname
 
-# Safety restrictions: Only allow E: drive (/mnt/e/) and local mount points on remote
-ALLOWED_REMOTE_PREFIXES=(
-    "/mnt/e/"
-    "/home/"
-    "/tmp/"
-)
+# Safety restrictions removed - user has full control over remote paths
+# Use with caution when syncing to system directories
 
 # Parameter validation and parsing
 DIRECTION="to"  # Default: sync TO remote
@@ -44,10 +40,7 @@ if [[ "$1" == "-h" || "$1" == "--help" || $# -eq 0 ]]; then
     echo "  username     SSH username (default: chris)"
     echo "  ip_address   Remote host IP (default: 192.168.1.236)"
     echo ""
-    echo "Safety: Remote paths restricted to:"
-    echo "  - /mnt/e/ (E: drive)"
-    echo "  - /home/ (user directories)"
-    echo "  - /tmp/ (temporary files)"
+    echo "Safety: No path restrictions - sync anywhere with caution"
     echo ""
     echo "Examples:"
     echo "  $0 ./myfile.txt                    # Copy to E:/myfile.txt"
@@ -146,7 +139,7 @@ perform_sync() {
             exit 1
         fi
         
-        # Validate remote path safety
+        # Validate remote path (warnings only)
         validate_remote_path "$remote_path"
         
         source="$local_path"
