@@ -53,17 +53,18 @@
   - `~/.dotfiles/bin/ssh_windows_wsl -i 192.168.1.100 -c "pwd"` (short flags combined)
 
 ### sync_windows_wsl
-- **User says:** "sync files to windows" or "copy to wsl" or "upload to E drive" or "download from windows" or "rsync to remote"
+- **User says:** "sync files to windows" or "copy to wsl" or "upload to windows" or "download from windows" or "rsync to remote"
 - **Shell command:** `~/.dotfiles/bin/sync_windows_wsl [--to|--from] <path> [remote_path] [username] [ip_address]`
-- **Safety restrictions:** Only allows E: drive (/mnt/e/), home directories (/home/), and temp (/tmp/) on remote
-- **Features:** Bidirectional sync, safety validation, SSH connection testing, automatic directory creation
+- **Safety:** No path restrictions - user has full control (warns about system paths)
+- **Features:** Bidirectional sync, SSH connection testing, automatic directory creation, system path warnings
 - **Auto-installs:** None (requires rsync, ssh, standard utilities)
 - **Examples:**
   - `~/.dotfiles/bin/sync_windows_wsl ./myfile.txt` (copy to E:/myfile.txt)
   - `~/.dotfiles/bin/sync_windows_wsl ./docs/ /mnt/e/backup/` (sync directory to E:/backup/)
   - `~/.dotfiles/bin/sync_windows_wsl --from /mnt/e/data.txt ./` (download from E: drive)
   - `~/.dotfiles/bin/sync_windows_wsl ./project/ /home/chris/work/` (sync to home directory)
-  - `~/.dotfiles/bin/sync_windows_wsl ./file.txt /mnt/e/ admin 192.168.1.100` (custom user/IP)
+  - `~/.dotfiles/bin/sync_windows_wsl ./config /mnt/c/Users/chris/AppData/` (sync to C: drive)
+  - `~/.dotfiles/bin/sync_windows_wsl ./file.txt /mnt/d/data/ admin 192.168.1.100` (custom user/IP)
 
 ### network_drive_manager
 - **User says:** "open latest 10 files in rated" or "list network files" or "open network drive movies2"
