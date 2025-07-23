@@ -2,7 +2,7 @@
 
 # initClaude - Semantic Claude Workspace Initializer - creates project directories with consistent naming and launches Claude Code
 # Usage: ./initClaude [input] [--no-launch] [--file filename]
-# REQUIRES: mkdir, rm, curl, git, awk, basename, dirname, uuidgen, claude-code
+# REQUIRES: mkdir, rm, curl, git, awk, basename, dirname, uuidgen, claude
 
 set -e
 
@@ -160,7 +160,7 @@ Scratch workspace for quick experiments
 
 ## Getting Started
 \`\`\`bash
-claude-code .
+claude
 \`\`\`
 
 ## Notes
@@ -180,7 +180,7 @@ $original_input
 
 ## Getting Started
 \`\`\`bash
-claude-code .
+claude
 \`\`\`
 
 ## Notes
@@ -275,10 +275,10 @@ if [[ "$NO_LAUNCH" == "true" ]]; then
 else
     echo "🚀 Launching Claude Code..."
     cd "$project_dir"
-    if command -v claude-code > /dev/null 2>&1; then
-        exec claude-code .
+    if command -v claude > /dev/null 2>&1; then
+        exec claude
     else
-        echo "❌ claude-code command not found. Please install Claude Code CLI."
+        echo "❌ claude command not found. Please install Claude Code CLI."
         exit 1
     fi
 fi
