@@ -59,11 +59,11 @@ if [[ -z "$OUTPUT_FILE" ]]; then
     VIDEO_TITLE=$(yt-dlp --get-title "$URL" 2>/dev/null | head -1)
     
     if [ -n "$VIDEO_TITLE" ]; then
-        # Clean title: lowercase, replace spaces/special chars with dots, limit length
-        CLEAN_TITLE=$(echo "$VIDEO_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/ /g' | tr -s ' ' | sed 's/^ *//;s/ *$//' | tr ' ' '.' | cut -c1-40)
-        OUTPUT="${CLEAN_TITLE}.${VIDEO_ID}.txt"
+        # Clean title: lowercase, keep only 4 words, use dashes, remove duplicates
+        CLEAN_TITLE=$(echo "$VIDEO_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/ /g' | tr -s ' ' | sed 's/^ *//;s/ *$//' | awk '{for(i=1;i<=4 && i<=NF;i++) printf "%s%s", $i, (i<4 && i<NF?"-":"")}' | sed 's/-\+/-/g')
+        OUTPUT="${CLEAN_TITLE}-${VIDEO_ID}.txt"
     else
-        OUTPUT="transcript.${VIDEO_ID}.txt"
+        OUTPUT="transcript-${VIDEO_ID}.txt"
     fi
 else
     OUTPUT="$OUTPUT_FILE"

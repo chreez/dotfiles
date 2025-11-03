@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Copy file(s) to clipboard using pbcopy
+# Usage: copy_to_clipboard file1 [file2 ...]
+
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 file1 [file2 ...]"
+    exit 1
+fi
+
+for file in "$@"; do
+    if [ ! -f "$file" ]; then
+        echo "Error: $file not found"
+        continue
+    fi
+    
+    echo "=== $file ===" >> /tmp/clipboard_content
+    cat "$file" >> /tmp/clipboard_content
+    echo "" >> /tmp/clipboard_content
+done
+
+cat /tmp/clipboard_content | pbcopy
+rm -f /tmp/clipboard_content
+
+echo "Copied $# file(s) to clipboard"
